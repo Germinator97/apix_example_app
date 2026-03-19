@@ -11,23 +11,25 @@ class AppApiClientFactory {
 
   /// Creates the ApiClient with all apix interceptors configured.
   ({ApiClient client, CacheInterceptor cacheInterceptor}) create() {
-    // 1. Create base client
+    final tokenProvider = _localDataSource.tokenProvider;
+
+    final cacheConfig = CacheConfig(
+      strategy: CacheStrategy.networkFirst,
+      defaultTtl: const Duration(minutes: 5),
+      enableDeduplication: true,
+    );
+
     final client = ApiClientFactory.create(
       baseUrl: 'https://jsonplaceholder.typicode.com',
       connectTimeout: const Duration(seconds: 30),
       receiveTimeout: const Duration(seconds: 30),
       headers: {'X-App-Version': '1.0.0', 'Accept': 'application/json'},
-    );
 
-    // 2. Auth Interceptor - Using SecureTokenProvider with simplified refresh
-    final tokenProvider = _localDataSource.tokenProvider;
-    final authInterceptor = AuthInterceptor(
-      AuthConfig(
+      authConfig: AuthConfig(
         tokenProvider: tokenProvider,
         headerName: 'Authorization',
         headerPrefix: 'Bearer',
         refreshStatusCodes: [401],
-        // Simplified refresh flow (NEW in v0.3)
         refreshEndpoint: '/auth/refresh',
         onTokenRefreshed: (response) async {
           // Parse response and save new tokens
@@ -40,48 +42,29 @@ class AppApiClientFactory {
           }
         },
       ),
-      client.dio,
-    );
 
-    // 3. Retry Interceptor - Automatic retries with backoff
-    final retryInterceptor = RetryInterceptor(
-      config: const RetryConfig(
+      retryConfig: const RetryConfig(
         maxAttempts: 3,
         retryStatusCodes: [408, 429, 500, 502, 503, 504],
         baseDelayMs: 1000,
         multiplier: 2.0,
       ),
-      dio: client.dio,
-    );
 
-    // 4. Cache Interceptor - Response caching
-    final cacheInterceptor = CacheInterceptor(
-      config: CacheConfig(
-        strategy: CacheStrategy.networkFirst,
-        defaultTtl: const Duration(minutes: 5),
-        enableDeduplication: true,
-      ),
-    );
-    cacheInterceptor.setDio(client.dio);
+      cacheConfig: cacheConfig,
 
-    // 5. Logger Interceptor - Request/response logging
-    final loggerInterceptor = LoggerInterceptor(
-      config: const LoggerConfig(
+      loggerConfig: const LoggerConfig(
         level: LogLevel.info,
         logRequestHeaders: true,
         logRequestBody: false,
         logResponseBody: false,
         redactedHeaders: ['Authorization', 'Cookie'],
       ),
-    );
 
-    // 6. Sentry Interceptor - Error tracking
-    final sentryInterceptor = SentryInterceptor(
-      config: SentryConfig(
+      errorTrackingConfig: ErrorTrackingConfig(
         captureStatusCodes: {500, 501, 502, 503, 504},
         captureResponseBody: true,
         redactedHeaders: ['Authorization', 'Cookie', 'Set-Cookie'],
-        captureException: (exception, {stackTrace, extra, tags}) async {
+        onError: (exception, {stackTrace, extra, tags}) async {
           await Sentry.captureException(
             exception,
             stackTrace: stackTrace,
@@ -95,7 +78,7 @@ class AppApiClientFactory {
             },
           );
         },
-        addBreadcrumb: (data) {
+        onBreadcrumb: (data) {
           Sentry.addBreadcrumb(
             Breadcrumb(
               message: data['message'] as String?,
@@ -106,11 +89,8 @@ class AppApiClientFactory {
           );
         },
       ),
-    );
 
-    // 7. Metrics Interceptor - Performance tracking
-    final metricsInterceptor = MetricsInterceptor(
-      config: MetricsConfig(
+      metricsConfig: MetricsConfig(
         onMetrics: (metrics) {
           // ignore: avoid_print
           print(
@@ -125,15 +105,7 @@ class AppApiClientFactory {
       ),
     );
 
-    // Add interceptors in order
-    client.dio.interceptors.addAll([
-      authInterceptor,
-      retryInterceptor,
-      cacheInterceptor,
-      loggerInterceptor,
-      sentryInterceptor,
-      metricsInterceptor,
-    ]);
+    final cacheInterceptor = CacheInterceptor(config: cacheConfig);
 
     return (client: client, cacheInterceptor: cacheInterceptor);
   }

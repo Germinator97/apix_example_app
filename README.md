@@ -16,8 +16,6 @@ void main() async {
     options: SentrySetupOptions(
       dsn: 'https://example@sentry.io/example',
       environment: 'development',
-      filterNetworkNoise: true,
-      anrEnabled: true,
     ),
     appRunner: () async {
       runApp(const ApixExampleApp());
@@ -139,12 +137,12 @@ HTTP error capturing and breadcrumbs:
 
 ```dart
 final sentryInterceptor = SentryInterceptor(
-  config: SentryConfig(
+  config: ErrorTrackingConfig(
     captureStatusCodes: {500, 501, 502, 503, 504},
-    captureException: (exception, {stackTrace, extra, tags}) async {
-      await Sentry.captureException(exception, stackTrace: stackTrace);
+    onError: (Object e, StackTrace? stackTrace, {Map<String, dynamic>? extra, Map<String, String>? tags}) async {
+      await Sentry.captureException(e, stackTrace: stackTrace);
     },
-    addBreadcrumb: (data) {
+    onBreadcrumb: (Map<String, dynamic> data) {
       Sentry.addBreadcrumb(Breadcrumb(
         message: data['message'] as String?,
         category: data['category'] as String?,
