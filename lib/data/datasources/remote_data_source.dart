@@ -1,32 +1,46 @@
 import 'package:apix/apix.dart';
 import 'package:dio/dio.dart';
 
+import '../models/post.dart';
+import '../models/user.dart';
+
 /// Remote data source using Apix ApiClient.
+///
+/// All API calls go through [ApiClient] which handles:
+/// - Authentication (token injection, refresh)
+/// - Retry with exponential backoff
+/// - Caching (configurable per request)
+/// - Error transformation (DioException → ApiException)
 class RemoteDataSource {
   final ApiClient _client;
-  final CacheInterceptor _cacheInterceptor;
+  final CacheInterceptor? _cacheInterceptor;
 
-  RemoteDataSource(this._client, this._cacheInterceptor);
+  RemoteDataSource(this._client, [this._cacheInterceptor]);
 
   /// Fetches all users.
-  Future<List<Map<String, dynamic>>> getUsers() async {
-    final response = await _client.get<List<dynamic>>('/users');
-    return response.data!.cast<Map<String, dynamic>>();
+  Future<List<UserModel>> getUsers() async {
+    return await _client.getListAndDecode<UserModel>(
+      '/users',
+      (json) => UserModel.fromJson(json['data']),
+    );
   }
 
   /// Fetches a single user by ID.
-  Future<Map<String, dynamic>> getUser(int id) async {
-    final response = await _client.get<Map<String, dynamic>>('/users/$id');
-    return response.data!;
+  Future<UserModel> getUser(int id) async {
+    return await _client.getAndDecode<UserModel>(
+      '/users/$id',
+      (json) => UserModel.fromJson(json['data']),
+    );
   }
 
   /// Fetches all posts with configurable cache strategy.
-  Future<List<Map<String, dynamic>>> getPosts({
+  Future<List<PostModel>> getPosts({
     CacheStrategy strategy = CacheStrategy.networkFirst,
     bool forceRefresh = false,
   }) async {
-    final response = await _client.get<List<dynamic>>(
+    return await _client.getListAndDecode<PostModel>(
       '/posts',
+      (json) => PostModel.fromJson(json['data']),
       options: Options(
         extra: {
           'cacheStrategy': strategy,
@@ -34,22 +48,23 @@ class RemoteDataSource {
         },
       ),
     );
-    return response.data!.cast<Map<String, dynamic>>();
   }
 
   /// Creates a new post.
-  Future<Map<String, dynamic>> createPost({
+  Future<PostModel> createPost({
     required String title,
     required String body,
     required int userId,
   }) async {
-    final response = await _client.post<Map<String, dynamic>>(
-      '/posts',
-      data: {'title': title, 'body': body, 'userId': userId},
-    );
-    return response.data!;
+    return await _client.postAndDecode<PostModel>('/posts', {
+      'title': title,
+      'body': body,
+      'userId': userId,
+    }, (json) => PostModel.fromJson(json['data']));
   }
 
   /// Clears the cache.
-  Future<int> clearCache() => _cacheInterceptor.clearCache();
+  Future<int> clearCache() async {
+    return await _cacheInterceptor?.clearCache() ?? 0;
+  }
 }

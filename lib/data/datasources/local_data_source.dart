@@ -7,15 +7,11 @@ import 'package:apix/apix.dart';
 class LocalDataSource {
   final SecureTokenProvider _tokenProvider;
 
-  /// Creates a [LocalDataSource] with optional custom [SecureStorageService].
+  /// Creates a [LocalDataSource] with the shared [SecureTokenProvider].
   ///
-  /// If no storage is provided, [SecureTokenProvider] creates one with
-  /// secure defaults (encrypted shared preferences on Android, Keychain on iOS).
-  LocalDataSource({SecureStorageService? storage})
-    : _tokenProvider = SecureTokenProvider(storage: storage);
-
-  /// Access to the underlying [SecureTokenProvider] for auth configuration.
-  SecureTokenProvider get tokenProvider => _tokenProvider;
+  /// The tokenProvider should be the same instance used by [ApiClientProvider]
+  /// to ensure token consistency across the app.
+  LocalDataSource(this._tokenProvider);
 
   /// Access to the underlying [SecureStorageService] for additional secrets.
   SecureStorageService get storage => _tokenProvider.storage;

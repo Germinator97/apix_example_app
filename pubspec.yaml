@@ -4,7 +4,7 @@ description: "Example app demonstrating all apix features."
 
 publish_to: 'none'
 
-version: 1.0.0
+version: 1.1.0
 
 environment:
   sdk: ^3.8.0
@@ -15,8 +15,9 @@ dependencies:
   cupertino_icons: ^1.0.8
   apix:
     path: ../apix
-  flutter_secure_storage: ^9.0.0
-  sentry_flutter: ^8.0.0
+  dio: ^5.4.0
+  flutter_secure_storage: ^10.0.0
+  sentry_flutter: ^9.0.0
   # Clean Architecture + BLoC
   flutter_bloc: ^8.1.0
   bloc: ^8.1.0

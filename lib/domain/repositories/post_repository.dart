@@ -1,17 +1,18 @@
-import 'package:apix/apix.dart';
+import 'package:apix/apix.dart' hide Failure;
 
+import '../../core/error/failures.dart';
 import '../entities/post.dart';
 
 /// Repository interface for post operations.
 abstract class PostRepository {
   /// Fetches all posts with configurable cache strategy.
-  Future<Result<List<Post>, ApiException>> getPosts({
+  Future<Result<List<Post>, Failure>> getPosts({
     CacheStrategy strategy,
     bool forceRefresh,
   });
 
   /// Creates a new post.
-  Future<Result<Post, ApiException>> createPost({
+  Future<Result<Post, Failure>> createPost({
     required String title,
     required String body,
     required int userId,

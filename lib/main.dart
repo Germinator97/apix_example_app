@@ -14,9 +14,7 @@ void main() async {
   await initDependencies();
 
   await SentrySetup.init(
-    options: SentrySetupOptions.development(
-      dsn: 'YOUR_DSN_HERE',
-    ),
+    options: SentrySetupOptions.development(dsn: 'YOUR_DSN_HERE'),
     appRunner: () async {
       runApp(const ApixExampleApp());
     },
@@ -33,6 +31,7 @@ class ApixExampleApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
+      themeMode: ThemeMode.system,
       home: const HomeScreen(),
     );
   }

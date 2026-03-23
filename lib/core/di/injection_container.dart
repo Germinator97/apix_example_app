@@ -1,3 +1,4 @@
+import 'package:apix/apix.dart';
 import 'package:get_it/get_it.dart';
 
 import '../../data/datasources/local_data_source.dart';
@@ -16,40 +17,44 @@ import '../../domain/usecases/test_sentry.dart';
 import '../../presentation/blocs/posts/posts_bloc.dart';
 import '../../presentation/blocs/sentry/sentry_bloc.dart';
 import '../../presentation/blocs/users/users_bloc.dart';
-import '../network/api_client_factory.dart';
+import '../services/api_client_provider.dart';
 
 final sl = GetIt.instance;
 
 /// Initializes all dependencies using GetIt.
+///
+/// Architecture: DataSource → Repository → UseCase → Bloc
 Future<void> initDependencies() async {
+  // ============================================================
+  // INFRASTRUCTURE (ApiX configuration)
+  // ============================================================
+  sl.registerLazySingleton<ApiClientProvider>(
+    () => ApiClientProvider(baseUrl: 'https://jsonplaceholder.typicode.com'),
+  );
+
+  sl.registerLazySingleton<TokenProvider>(
+    () => sl<ApiClientProvider>().tokenProvider,
+  );
+
   // ============================================================
   // DATA SOURCES
   // ============================================================
-  // LocalDataSource now uses apix's SecureTokenProvider internally
-  // No need to inject FlutterSecureStorage manually
-  sl.registerLazySingleton<LocalDataSource>(() => LocalDataSource());
-
-  // API Client Factory
-  sl.registerLazySingleton<AppApiClientFactory>(
-    () => AppApiClientFactory(sl()),
+  sl.registerLazySingleton<LocalDataSource>(
+    () => LocalDataSource(sl<ApiClientProvider>().tokenProvider),
   );
 
-  // Create API client and cache interceptor
-  final apiSetup = sl<AppApiClientFactory>().create();
-  sl.registerLazySingleton(() => apiSetup.client);
-  sl.registerLazySingleton(() => apiSetup.cacheInterceptor);
-
   sl.registerLazySingleton<RemoteDataSource>(
-    () => RemoteDataSource(sl(), sl()),
+    () => RemoteDataSource(
+      sl<ApiClientProvider>().client,
+      sl<ApiClientProvider>().cacheInterceptor,
+    ),
   );
 
   // ============================================================
   // REPOSITORIES
   // ============================================================
   sl.registerLazySingleton<UserRepository>(() => UserRepositoryImpl(sl()));
-
   sl.registerLazySingleton<PostRepository>(() => PostRepositoryImpl(sl()));
-
   sl.registerLazySingleton<AuthRepository>(() => AuthRepositoryImpl(sl()));
 
   // ============================================================
@@ -65,10 +70,8 @@ Future<void> initDependencies() async {
   // BLOCS
   // ============================================================
   sl.registerFactory(() => UsersBloc(getUsers: sl()));
-
   sl.registerFactory(
     () => PostsBloc(getPosts: sl(), createPost: sl(), clearCache: sl()),
   );
-
   sl.registerFactory(() => SentryBloc(testSentry: sl()));
 }

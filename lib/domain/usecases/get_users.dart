@@ -1,5 +1,6 @@
-import 'package:apix/apix.dart';
+import 'package:apix/apix.dart' hide Failure;
 
+import '../../core/error/failures.dart';
 import '../entities/user.dart';
 import '../repositories/user_repository.dart';
 
@@ -9,7 +10,7 @@ class GetUsers {
 
   GetUsers(this._repository);
 
-  Future<Result<List<User>, ApiException>> call() {
+  Future<Result<List<User>, Failure>> call() {
     return _repository.getUsers();
   }
 }

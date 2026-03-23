@@ -1,5 +1,6 @@
-import 'package:apix/apix.dart';
+import 'package:apix/apix.dart' hide Failure;
 
+import '../../core/error/failures.dart';
 import '../entities/post.dart';
 import '../repositories/post_repository.dart';
 
@@ -9,7 +10,7 @@ class CreatePost {
 
   CreatePost(this._repository);
 
-  Future<Result<Post, ApiException>> call({
+  Future<Result<Post, Failure>> call({
     required String title,
     required String body,
     required int userId,
