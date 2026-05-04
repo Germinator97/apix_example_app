@@ -1,56 +1,69 @@
+import 'dart:io';
+
 import 'package:apix/apix.dart';
 import 'package:dio/dio.dart';
 
 import '../models/post.dart';
 import '../models/user.dart';
 
-/// Remote data source using Apix ApiClient.
+/// Remote data source backed by an Apix [ApiClient].
 ///
-/// All API calls go through [ApiClient] which handles:
-/// - Authentication (token injection, refresh)
-/// - Retry with exponential backoff
-/// - Caching (configurable per request)
-/// - Error transformation (DioException → ApiException)
+/// Demonstrates:
+/// - Plain HTTP verbs (GET/POST/PUT/PATCH/DELETE)
+/// - Typed parsers ([ApiClient.getAndParse], [ApiClient.getAndDecode])
+/// - Per-request cache strategy override
+/// - Multipart upload via [MultipartInterceptor] (auto-detected `File`)
+/// - Cache invalidation API
 class RemoteDataSource {
+  RemoteDataSource(this._client, this._cacheInterceptor);
+
   final ApiClient _client;
-  final CacheInterceptor? _cacheInterceptor;
+  final CacheInterceptor _cacheInterceptor;
 
-  RemoteDataSource(this._client, [this._cacheInterceptor]);
+  /// Last response tagged "from cache" (used to surface a UI badge).
+  bool _lastFromCache = false;
+  bool get lastFromCache => _lastFromCache;
 
-  /// Fetches all users.
+  // ============================================================
+  // GET (collection / single)
+  // ============================================================
+
   Future<List<UserModel>> getUsers() async {
-    return await _client.getListAndDecode<UserModel>(
-      '/users',
-      (json) => UserModel.fromJson(json['data']),
-    );
+    final response = await _client.get<dynamic>('/users');
+    _lastFromCache = CacheRequestExtension.isFromCache(response);
+    final data = response.data as List<dynamic>;
+    return data
+        .map((item) => UserModel.fromJson(item as Map<String, dynamic>))
+        .toList();
   }
 
-  /// Fetches a single user by ID.
   Future<UserModel> getUser(int id) async {
     return await _client.getAndDecode<UserModel>(
       '/users/$id',
-      (json) => UserModel.fromJson(json['data']),
+      UserModel.fromJson,
     );
   }
 
-  /// Fetches all posts with configurable cache strategy.
   Future<List<PostModel>> getPosts({
     CacheStrategy strategy = CacheStrategy.networkFirst,
     bool forceRefresh = false,
   }) async {
-    return await _client.getListAndDecode<PostModel>(
+    final effective = forceRefresh ? CacheStrategy.networkOnly : strategy;
+    final response = await _client.get<dynamic>(
       '/posts',
-      (json) => PostModel.fromJson(json['data']),
-      options: Options(
-        extra: {
-          'cacheStrategy': strategy,
-          if (forceRefresh) 'forceRefresh': true,
-        },
-      ),
+      options: Options(extra: {'cacheStrategy': effective}),
     );
+    _lastFromCache = CacheRequestExtension.isFromCache(response);
+    final data = response.data as List<dynamic>;
+    return data
+        .map((item) => PostModel.fromJson(item as Map<String, dynamic>))
+        .toList();
   }
 
-  /// Creates a new post.
+  // ============================================================
+  // MUTATIONS — POST / PUT / PATCH / DELETE
+  // ============================================================
+
   Future<PostModel> createPost({
     required String title,
     required String body,
@@ -60,11 +73,67 @@ class RemoteDataSource {
       'title': title,
       'body': body,
       'userId': userId,
-    }, (json) => PostModel.fromJson(json['data']));
+    }, PostModel.fromJson);
   }
 
-  /// Clears the cache.
-  Future<int> clearCache() async {
-    return await _cacheInterceptor?.clearCache() ?? 0;
+  Future<PostModel> updatePost({
+    required int id,
+    required String title,
+    required String body,
+    required int userId,
+  }) async {
+    return await _client.putAndDecode<PostModel>('/posts/$id', {
+      'id': id,
+      'title': title,
+      'body': body,
+      'userId': userId,
+    }, PostModel.fromJson);
   }
+
+  Future<PostModel> patchPost({required int id, required String title}) async {
+    return await _client.patchAndDecode<PostModel>('/posts/$id', {
+      'title': title,
+    }, PostModel.fromJson);
+  }
+
+  Future<void> deletePost(int id) async {
+    await _client.delete<void>('/posts/$id');
+  }
+
+  // ============================================================
+  // MULTIPART UPLOAD
+  // ============================================================
+
+  /// Uploads a `File` via [MultipartInterceptor].
+  ///
+  /// JSONPlaceholder echoes the multipart payload back as JSON, which is
+  /// enough to demonstrate that the interceptor converted the `File` to a
+  /// `MultipartFile` and switched the `Content-Type` to `multipart/form-data`.
+  Future<Map<String, dynamic>> uploadFile(
+    File file, {
+    String label = 'demo',
+  }) async {
+    final response = await _client.post<Map<String, dynamic>>(
+      '/posts',
+      data: {'label': label, 'file': file},
+    );
+    return response.data ?? const {};
+  }
+
+  // ============================================================
+  // CACHE INVALIDATION
+  // ============================================================
+
+  Future<int> clearCache() => _cacheInterceptor.clearCache();
+
+  Future<bool> invalidateUrl(String url) =>
+      _cacheInterceptor.invalidateUrl(url);
+
+  Future<int> invalidatePath(String path) =>
+      _cacheInterceptor.invalidatePath(path);
+
+  Future<int> invalidateByPrefix(String prefix) =>
+      _cacheInterceptor.invalidateByPrefix(prefix);
+
+  Future<List<String>> getCacheKeys() => _cacheInterceptor.getCacheKeys();
 }

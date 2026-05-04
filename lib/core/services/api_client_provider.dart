@@ -1,72 +1,112 @@
 import 'package:apix/apix.dart';
 import 'package:flutter/foundation.dart';
-import 'package:sentry_flutter/sentry_flutter.dart';
 
 /// Centralized API client configuration.
 ///
-/// Provides a single point of configuration for:
-/// - Base URL
-/// - Authentication with automatic token refresh
-/// - Logging
-/// - Error tracking
-/// - Cache strategies
+/// Wires up every apix module so the app can demonstrate them end-to-end:
+/// auth refresh, retry, cache (with shared invalidation API), logging,
+/// error tracking with Sentry breadcrumbs, and request metrics.
 class ApiClientProvider {
-  ApiClientProvider({required this.baseUrl});
+  ApiClientProvider({required this.baseUrl, this.environment = 'development'});
 
   final String baseUrl;
+  final String environment;
 
-  /// Token provider for secure storage
+  /// Token provider for secure storage.
   late final SecureTokenProvider tokenProvider = SecureTokenProvider();
 
-  /// Cache configuration
-  late final _cacheConfig = CacheConfig(
+  /// Cache configuration shared between the interceptor in the Dio chain and
+  /// the public [cacheInterceptor] used by the app for invalidation calls.
+  late final CacheConfig _cacheConfig = CacheConfig(
+    storage: InMemoryCacheStorage(maxEntries: 100),
     strategy: CacheStrategy.networkFirst,
     defaultTtl: const Duration(minutes: 5),
   );
 
-  /// Cache interceptor for direct cache operations
+  /// Single [CacheInterceptor] instance — exposed for invalidation and
+  /// also installed in the Dio chain so both share the same storage and
+  /// the same `setDio` link (required for relative-URL invalidation).
   late final CacheInterceptor cacheInterceptor = CacheInterceptor(
     config: _cacheConfig,
   );
 
-  /// Auth configuration with automatic refresh
+  /// Latest request metrics, refreshed by [MetricsInterceptor] on every call.
+  RequestMetrics? lastMetrics;
+
+  /// Auth configuration with simplified refresh + auth-failure callback.
   late final AuthConfig _authConfig = AuthConfig(
     tokenProvider: tokenProvider,
     refreshEndpoint: '/auth/refresh',
     onTokenRefreshed: (response) async {
-      final json = response.data;
-      final data = json is Map<String, dynamic> ? json : <String, dynamic>{};
+      final raw = response.data;
+      final data = raw is Map<String, dynamic>
+          ? raw
+          : const <String, dynamic>{};
 
       final accessToken = (data['access_token'] ?? '').toString();
       final refreshToken =
-          (data['refresh_token'] ?? await tokenProvider.getRefreshToken())
+          (data['refresh_token'] ?? await tokenProvider.getRefreshToken() ?? '')
               .toString();
 
       if (accessToken.isNotEmpty) {
         await tokenProvider.saveTokens(accessToken, refreshToken);
       }
     },
+    onAuthFailure: (provider, error) async {
+      await provider.clearTokens();
+      await SentrySetup.captureException(
+        error ?? const AuthException('Refresh token unavailable'),
+        tags: {'auth.event': 'refresh_failure'},
+      );
+    },
   );
 
-  /// Configured API client with all interceptors
-  late final client = ApiClientFactory.create(
-    baseUrl: baseUrl,
-    authConfig: _authConfig,
-    retryConfig: const RetryConfig(
-      maxAttempts: 3,
-      retryStatusCodes: [500, 502, 503, 504],
-    ),
-    cacheConfig: _cacheConfig,
-    loggerConfig: const LoggerConfig(
-      level: kDebugMode ? LogLevel.info : LogLevel.error,
-      redactedHeaders: ['Authorization'],
-    ),
-    errorTrackingConfig: ErrorTrackingConfig(
-      onError: (exception, {stackTrace, extra, tags}) async {
-        debugPrint('API Error: $exception');
-        // Sentry integration example:
-        await Sentry.captureException(exception, stackTrace: stackTrace);
-      },
-    ),
-  );
+  late final ApiClient client = _build();
+
+  ApiClient _build() {
+    final c = ApiClientFactory.create(
+      baseUrl: baseUrl,
+      authConfig: _authConfig,
+      retryConfig: const RetryConfig(
+        maxAttempts: 3,
+        retryStatusCodes: [500, 502, 503, 504],
+        maxDelayMs: 10000,
+        // v2.1: honour `Retry-After` header on 429/503 — capped at maxDelayMs.
+        // True is the apix default; pinned here for explicit documentation.
+        respectRetryAfter: true,
+      ),
+      loggerConfig: LoggerConfig(
+        level: kDebugMode ? LogLevel.info : LogLevel.error,
+        redactedHeaders: const ['Authorization', 'Cookie'],
+      ),
+      errorTrackingConfig: ErrorTrackingConfig(
+        environment: environment,
+        captureStatusCodes: const {500, 501, 502, 503, 504},
+        onError: SentrySetup.captureException,
+        onBreadcrumb: SentrySetup.addBreadcrumbFromMap,
+      ),
+      metricsConfig: MetricsConfig(
+        onMetrics: (metrics) {
+          lastMetrics = metrics;
+          if (kDebugMode) {
+            debugPrint(
+              '[metrics] ${metrics.method} ${metrics.path} '
+              '${metrics.statusCode ?? "?"} ${metrics.durationMs}ms',
+            );
+          }
+        },
+      ),
+      // v2.1: detect captive portals — typed `*AndDecode` calls verify the
+      // response Content-Type starts with `application/json`. JSONPlaceholder
+      // returns `application/json; charset=utf-8`, which passes this check.
+      strictContentType: true,
+      // Install the shared cache interceptor as a custom interceptor so the
+      // public `cacheInterceptor` references the exact instance Dio uses.
+      interceptors: [cacheInterceptor],
+    );
+
+    // Required for `invalidateUrl(<relative>)` to resolve against baseUrl.
+    cacheInterceptor.setDio(c.dio);
+    return c;
+  }
 }

@@ -18,6 +18,42 @@ abstract class PostRepository {
     required int userId,
   });
 
-  /// Clears the cache and returns the number of cleared entries.
+  /// Replaces an existing post (PUT).
+  Future<Result<Post, Failure>> updatePost({
+    required int id,
+    required String title,
+    required String body,
+    required int userId,
+  });
+
+  /// Patches an existing post (PATCH).
+  Future<Result<Post, Failure>> patchPost({
+    required int id,
+    required String title,
+  });
+
+  /// Deletes a post (DELETE).
+  Future<Result<void, Failure>> deletePost(int id);
+
+  /// Whether the last [getPosts] call was served from cache.
+  bool get lastFromCache;
+
+  // ============================================================
+  // CACHE INVALIDATION (apix CacheInterceptor surface)
+  // ============================================================
+
+  /// Clears every cached entry. Returns the number of cleared entries.
   Future<int> clearCache();
+
+  /// Invalidates all cache entries for a single relative URL.
+  Future<bool> invalidateUrl(String url);
+
+  /// Invalidates all cache entries whose key contains the given path.
+  Future<int> invalidatePath(String path);
+
+  /// Invalidates all cache entries whose key starts with the given prefix.
+  Future<int> invalidateByPrefix(String prefix);
+
+  /// Returns the current set of cache keys.
+  Future<List<String>> getCacheKeys();
 }

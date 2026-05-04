@@ -27,15 +27,17 @@ class PostsLoaded extends PostsState {
   final List<Post> posts;
   final CacheStrategy strategy;
   final Duration duration;
+  final bool fromCache;
 
   const PostsLoaded({
     required this.posts,
     required this.strategy,
     required this.duration,
+    required this.fromCache,
   });
 
   @override
-  List<Object?> get props => [posts, strategy, duration];
+  List<Object?> get props => [posts, strategy, duration, fromCache];
 }
 
 class PostCreated extends PostsState {
@@ -47,6 +49,35 @@ class PostCreated extends PostsState {
   List<Object?> get props => [post];
 }
 
+class PostUpdated extends PostsState {
+  final Post post;
+  final String verb;
+
+  const PostUpdated(this.post, {required this.verb});
+
+  @override
+  List<Object?> get props => [post, verb];
+}
+
+class PostDeleted extends PostsState {
+  final int id;
+
+  const PostDeleted(this.id);
+
+  @override
+  List<Object?> get props => [id];
+}
+
+class FileUploaded extends PostsState {
+  final String filename;
+  final int sizeBytes;
+
+  const FileUploaded({required this.filename, required this.sizeBytes});
+
+  @override
+  List<Object?> get props => [filename, sizeBytes];
+}
+
 class CacheCleared extends PostsState {
   final int clearedCount;
 
@@ -54,6 +85,25 @@ class CacheCleared extends PostsState {
 
   @override
   List<Object?> get props => [clearedCount];
+}
+
+class CacheInvalidated extends PostsState {
+  final String operation;
+  final int affected;
+
+  const CacheInvalidated({required this.operation, required this.affected});
+
+  @override
+  List<Object?> get props => [operation, affected];
+}
+
+class CacheKeysListed extends PostsState {
+  final List<String> keys;
+
+  const CacheKeysListed(this.keys);
+
+  @override
+  List<Object?> get props => [keys];
 }
 
 class PostsError extends PostsState {

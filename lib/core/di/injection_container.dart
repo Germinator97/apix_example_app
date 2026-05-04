@@ -11,26 +11,42 @@ import '../../domain/repositories/post_repository.dart';
 import '../../domain/repositories/user_repository.dart';
 import '../../domain/usecases/clear_cache.dart';
 import '../../domain/usecases/create_post.dart';
+import '../../domain/usecases/delete_post.dart';
 import '../../domain/usecases/get_posts.dart';
 import '../../domain/usecases/get_users.dart';
+import '../../domain/usecases/invalidate_cache.dart';
+import '../../domain/usecases/patch_post.dart';
 import '../../domain/usecases/test_sentry.dart';
+import '../../domain/usecases/update_post.dart';
+import '../../domain/usecases/upload_file.dart';
+import '../../presentation/blocs/envelope/envelope_bloc.dart';
+import '../../presentation/blocs/epic11/epic11_bloc.dart';
 import '../../presentation/blocs/posts/posts_bloc.dart';
 import '../../presentation/blocs/sentry/sentry_bloc.dart';
 import '../../presentation/blocs/users/users_bloc.dart';
 import '../services/api_client_provider.dart';
+import '../services/envelope_demo_client.dart';
+import '../services/epic11_demo_client.dart';
 
 final sl = GetIt.instance;
 
 /// Initializes all dependencies using GetIt.
 ///
-/// Architecture: DataSource → Repository → UseCase → Bloc
+/// Architecture: DataSource → Repository → UseCase → Bloc.
+/// Two ApiClient instances are wired in:
+/// - the main one against JSONPlaceholder (auth/retry/cache/logging/metrics)
+/// - a tiny mocked one for the envelope-API demo (`{data: ...}` payloads)
 Future<void> initDependencies() async {
   // ============================================================
-  // INFRASTRUCTURE (ApiX configuration)
+  // INFRASTRUCTURE
   // ============================================================
   sl.registerLazySingleton<ApiClientProvider>(
     () => ApiClientProvider(baseUrl: 'https://jsonplaceholder.typicode.com'),
   );
+
+  sl.registerLazySingleton<EnvelopeDemoClient>(EnvelopeDemoClient.new);
+
+  sl.registerLazySingleton<Epic11DemoClient>(Epic11DemoClient.new);
 
   sl.registerLazySingleton<TokenProvider>(
     () => sl<ApiClientProvider>().tokenProvider,
@@ -62,16 +78,33 @@ Future<void> initDependencies() async {
   // ============================================================
   sl.registerLazySingleton(() => GetUsers(sl()));
   sl.registerLazySingleton(() => GetPosts(sl()));
-  sl.registerLazySingleton(() => TestSentry(sl()));
   sl.registerLazySingleton(() => CreatePost(sl()));
+  sl.registerLazySingleton(() => UpdatePost(sl()));
+  sl.registerLazySingleton(() => PatchPost(sl()));
+  sl.registerLazySingleton(() => DeletePost(sl()));
+  sl.registerLazySingleton(() => UploadFile(sl()));
   sl.registerLazySingleton(() => ClearCache(sl()));
+  sl.registerLazySingleton(() => InvalidateCache(sl()));
+  sl.registerLazySingleton(() => TestSentry(sl()));
 
   // ============================================================
   // BLOCS
   // ============================================================
   sl.registerFactory(() => UsersBloc(getUsers: sl()));
   sl.registerFactory(
-    () => PostsBloc(getPosts: sl(), createPost: sl(), clearCache: sl()),
+    () => PostsBloc(
+      getPosts: sl(),
+      createPost: sl(),
+      updatePost: sl(),
+      patchPost: sl(),
+      deletePost: sl(),
+      uploadFile: sl(),
+      clearCache: sl(),
+      invalidateCache: sl(),
+      repository: sl(),
+    ),
   );
+  sl.registerFactory(() => EnvelopeBloc(client: sl()));
+  sl.registerFactory(() => Epic11Bloc(client: sl()));
   sl.registerFactory(() => SentryBloc(testSentry: sl()));
 }
