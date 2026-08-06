@@ -6,6 +6,16 @@ import 'core/di/injection_container.dart';
 import 'core/theme/app_theme.dart';
 import 'presentation/screens/home_screen.dart';
 
+/// Sentry DSN, supplied at build time — never committed.
+///
+/// ```bash
+/// flutter run --dart-define=SENTRY_DSN=https://…@…ingest.sentry.io/…
+/// ```
+///
+/// Empty by default, which disables Sentry entirely (see `enabled` below) so
+/// the app runs without one.
+const String sentryDsn = String.fromEnvironment('SENTRY_DSN');
+
 void main() async {
   // Initialize Sentry
   SentryWidgetsFlutterBinding.ensureInitialized();
@@ -17,7 +27,10 @@ void main() async {
     // Same values as `SentrySetupOptions.development(...)`, spelled out because
     // the convenience factories don't forward `configureOptions` (apix 2.2.0).
     options: SentrySetupOptions(
-      dsn: 'YOUR_DSN_HERE',
+      dsn: sentryDsn,
+      // Without a DSN, skip Sentry rather than initialising it with an empty
+      // one: `SentrySetup.init` then just runs the app.
+      enabled: sentryDsn.isNotEmpty,
       environment: 'development',
       tracesSampleRate: 0.0,
       profilesSampleRate: 0.0,
@@ -48,9 +61,11 @@ class ApixExampleApp extends StatelessWidget {
     return MaterialApp(
       title: 'ApiX Example',
       debugShowCheckedModeBanner: false,
+      // Light only. This demo is read as much as it is used — status messages,
+      // cache badges, probe counts — and the Apix palette was built against a
+      // light surface. There is no dark theme to fall back to, so no
+      // `themeMode` to pin.
       theme: AppTheme.light,
-      darkTheme: AppTheme.dark,
-      themeMode: ThemeMode.system,
       home: const HomeScreen(),
     );
   }
