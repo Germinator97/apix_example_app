@@ -38,6 +38,9 @@ abstract class PostRepository {
   /// Whether the last [getPosts] call was served from cache.
   bool get lastFromCache;
 
+  /// Whether that cached response was past its TTL (apix 3.0.0 `isStale`).
+  bool get lastFromCacheStale;
+
   // ============================================================
   // CACHE INVALIDATION (apix CacheInterceptor surface)
   // ============================================================

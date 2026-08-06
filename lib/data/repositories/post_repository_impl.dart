@@ -15,6 +15,9 @@ class PostRepositoryImpl implements PostRepository {
   bool get lastFromCache => _remoteDataSource.lastFromCache;
 
   @override
+  bool get lastFromCacheStale => _remoteDataSource.lastFromCacheStale;
+
+  @override
   Future<Result<List<Post>, Failure>> getPosts({
     CacheStrategy strategy = CacheStrategy.networkFirst,
     bool forceRefresh = false,

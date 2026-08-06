@@ -73,6 +73,7 @@ class PostsBloc extends Bloc<PostsEvent, PostsState> {
             strategy: event.strategy,
             duration: stopwatch.elapsed,
             fromCache: _repository.lastFromCache,
+            fromCacheStale: _repository.lastFromCacheStale,
           ),
         );
       } else {

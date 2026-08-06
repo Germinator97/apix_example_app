@@ -21,9 +21,22 @@ class RemoteDataSource {
   final ApiClient _client;
   final CacheInterceptor _cacheInterceptor;
 
-  /// Last response tagged "from cache" (used to surface a UI badge).
+  /// Whether the last response came from the cache (used for a UI badge).
   bool _lastFromCache = false;
   bool get lastFromCache => _lastFromCache;
+
+  /// Whether that cached response was past its TTL.
+  ///
+  /// apix 3.0.0 serves stale data on purpose in two cases — cacheFirst
+  /// revalidating behind, and the offline fallback of networkFirst — so the
+  /// UI has to be able to say "showing data from earlier".
+  bool _lastFromCacheStale = false;
+  bool get lastFromCacheStale => _lastFromCacheStale;
+
+  void _recordProvenance(Response<dynamic> response) {
+    _lastFromCache = response.isFromCache;
+    _lastFromCacheStale = response.isStale;
+  }
 
   // ============================================================
   // GET (collection / single)
@@ -31,7 +44,7 @@ class RemoteDataSource {
 
   Future<List<UserModel>> getUsers() async {
     final response = await _client.get<dynamic>('/users');
-    _lastFromCache = CacheRequestExtension.isFromCache(response);
+    _recordProvenance(response);
     final data = response.data as List<dynamic>;
     return data
         .map((item) => UserModel.fromJson(item as Map<String, dynamic>))
@@ -54,7 +67,7 @@ class RemoteDataSource {
       '/posts',
       options: Options(extra: {'cacheStrategy': effective}),
     );
-    _lastFromCache = CacheRequestExtension.isFromCache(response);
+    _recordProvenance(response);
     final data = response.data as List<dynamic>;
     return data
         .map((item) => PostModel.fromJson(item as Map<String, dynamic>))

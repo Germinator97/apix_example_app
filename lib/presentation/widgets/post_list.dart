@@ -7,7 +7,20 @@ class PostList extends StatelessWidget {
   final List<Post> posts;
   final bool fromCache;
 
-  const PostList({super.key, required this.posts, this.fromCache = false});
+  /// Whether the cached body shown was past its TTL (apix `response.isStale`).
+  ///
+  /// Distinguished from [fromCache] on purpose: since apix 3.0.0 a cached
+  /// response can legitimately be expired — `cacheFirst` revalidating behind,
+  /// or an offline fallback — and "from cache" alone would let the user
+  /// believe the figures are current.
+  final bool fromCacheStale;
+
+  const PostList({
+    super.key,
+    required this.posts,
+    this.fromCache = false,
+    this.fromCacheStale = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -22,25 +35,7 @@ class PostList extends StatelessWidget {
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(width: 8),
-            if (fromCache)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: ApixColors.sparkOrange.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: ApixColors.sparkOrange.withValues(alpha: 0.5),
-                  ),
-                ),
-                child: const Text(
-                  'from cache',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: ApixColors.sparkOrange,
-                  ),
-                ),
-              ),
+            if (fromCache) _CacheBadge(stale: fromCacheStale),
           ],
         ),
         const SizedBox(height: 8),
@@ -71,6 +66,39 @@ class PostList extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// Badge telling where the list came from, and whether it is still current.
+class _CacheBadge extends StatelessWidget {
+  const _CacheBadge({required this.stale});
+
+  final bool stale;
+
+  @override
+  Widget build(BuildContext context) {
+    // Deliberately different wording, not just a different colour: "from
+    // cache" says where the data came from, "from earlier" says it may be
+    // wrong. Only the second one changes what the user should do with it.
+    final colour = stale ? Colors.orange.shade800 : ApixColors.sparkOrange;
+    final label = stale ? 'from earlier — refreshing' : 'from cache';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: colour.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colour.withValues(alpha: 0.5)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: colour,
+        ),
+      ),
     );
   }
 }

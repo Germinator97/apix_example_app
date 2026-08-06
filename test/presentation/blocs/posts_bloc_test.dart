@@ -73,6 +73,9 @@ void main() {
     invalidateCache = _MockInvalidateCache();
     repo = _MockRepo();
     when(() => repo.lastFromCache).thenReturn(false);
+    // Must be stubbed too: PostsBloc reads it on every PostsLoaded, so an
+    // unstubbed getter would fail the handler and look like a bloc bug.
+    when(() => repo.lastFromCacheStale).thenReturn(false);
   });
 
   group('FetchPosts', () {

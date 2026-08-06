@@ -136,5 +136,10 @@ void main() {
       when(() => remote.lastFromCache).thenReturn(true);
       expect(repo.lastFromCache, isTrue);
     });
+
+    test('lastFromCacheStale mirrors remote', () {
+      when(() => remote.lastFromCacheStale).thenReturn(true);
+      expect(repo.lastFromCacheStale, isTrue);
+    });
   });
 }

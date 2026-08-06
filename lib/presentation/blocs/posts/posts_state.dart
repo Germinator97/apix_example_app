@@ -29,15 +29,25 @@ class PostsLoaded extends PostsState {
   final Duration duration;
   final bool fromCache;
 
+  /// True when the cached body served was already expired.
+  final bool fromCacheStale;
+
   const PostsLoaded({
     required this.posts,
     required this.strategy,
     required this.duration,
     required this.fromCache,
+    this.fromCacheStale = false,
   });
 
   @override
-  List<Object?> get props => [posts, strategy, duration, fromCache];
+  List<Object?> get props => [
+    posts,
+    strategy,
+    duration,
+    fromCache,
+    fromCacheStale,
+  ];
 }
 
 class PostCreated extends PostsState {

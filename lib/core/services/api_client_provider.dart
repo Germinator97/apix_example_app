@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:apix/apix.dart';
 import 'package:flutter/foundation.dart';
 
@@ -7,10 +9,20 @@ import 'package:flutter/foundation.dart';
 /// auth refresh, retry, cache (with shared invalidation API), logging,
 /// error tracking with Sentry breadcrumbs, and request metrics.
 class ApiClientProvider {
-  ApiClientProvider({required this.baseUrl, this.environment = 'development'});
+  ApiClientProvider({
+    required this.baseUrl,
+    required this.cacheDirectory,
+    this.environment = 'development',
+  });
 
   final String baseUrl;
   final String environment;
+
+  /// Where the persistent cache is written.
+  ///
+  /// Resolved by the app (via `path_provider`) and handed to apix, which
+  /// deliberately does not depend on `path_provider` itself.
+  final Directory cacheDirectory;
 
   /// Token provider for secure storage.
   late final SecureTokenProvider tokenProvider = SecureTokenProvider();
@@ -18,7 +30,21 @@ class ApiClientProvider {
   /// Cache configuration shared between the interceptor in the Dio chain and
   /// the public [cacheInterceptor] used by the app for invalidation calls.
   late final CacheConfig _cacheConfig = CacheConfig(
-    storage: InMemoryCacheStorage(maxEntries: 100),
+    // apix 3.0.0: survives restarts, unlike InMemoryCacheStorage which starts
+    // empty on every cold start — exactly when the wait is most visible. The
+    // app can prove it: fetch posts, kill the app, reopen, and the list paints
+    // from disk.
+    //
+    // Bounded on purpose. A process cache disappears when the app closes; a
+    // disk cache does not, so leaving it unbounded would keep every response
+    // this demo ever made.
+    //
+    // ⚠️ Clear text on disk. JSONPlaceholder posts are public sample data —
+    // this would be the wrong place for anything carrying identity or money.
+    storage: FileCacheStorage(
+      Directory('${cacheDirectory.path}/apix_cache'),
+      maxEntries: 100,
+    ),
     strategy: CacheStrategy.networkFirst,
     defaultTtl: const Duration(minutes: 5),
   );
@@ -88,6 +114,12 @@ class ApiClientProvider {
         level: kDebugMode ? LogLevel.info : LogLevel.error,
         redactedHeaders: const ['Authorization', 'Cookie'],
       ),
+      // apix 3.0.0: `onError` hands over the TYPED ApiException, so Sentry
+      // files a 500 (ServerException) and a 404 (NotFoundException) as
+      // distinct issues instead of lumping everything under `DioException`.
+      // Transport failures (TimeoutException, ConnectionException) are then
+      // filtered as network noise and never reach Sentry — which is why a
+      // dropped connection shows in the status bar but not in the dashboard.
       errorTrackingConfig: ErrorTrackingConfig(
         environment: environment,
         captureStatusCodes: const {500, 501, 502, 503, 504},
