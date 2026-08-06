@@ -11,7 +11,18 @@ abstract class ApixColors {
   /// Spark Orange - Accent color
   static const sparkOrange = Color(0xFFF89C35);
 
-  /// Slate Gray - Text secondary
+  /// Foreground to use **on** [sparkOrange].
+  ///
+  /// Not white: white on this orange lands at 2.14:1, well under the 3:1 WCAG
+  /// AA floor even for large text — the accent is far too bright to carry it.
+  /// Navy gets ~5.7:1 and keeps the brand colour untouched.
+  static const onSparkOrange = deepNavy;
+
+  /// Slate Gray - Text secondary.
+  ///
+  /// Read it through `Theme.of(context).colorScheme.onSurfaceVariant` rather
+  /// than directly: hardcoding foreground colours in widgets is what made the
+  /// app unreadable on a dark surface before.
   static const slateGray = Color(0xFF4A5568);
 
   /// Light Gray - Background
@@ -19,9 +30,6 @@ abstract class ApixColors {
 
   /// White
   static const white = Color(0xFFFFFFFF);
-
-  /// Dark background
-  static const darkBg = Color(0xFF0D1117);
 }
 
 /// Apix app theme configuration.
@@ -35,8 +43,12 @@ class AppTheme {
         secondary: ApixColors.sparkOrange,
         surface: ApixColors.white,
         onPrimary: ApixColors.white,
-        onSecondary: ApixColors.white,
+        onSecondary: ApixColors.onSparkOrange,
+        onSurfaceVariant: ApixColors.slateGray,
       ),
+      // The palette was designed for a light background; wiring it explicitly
+      // instead of relying on the Material default.
+      scaffoldBackgroundColor: ApixColors.lightGray,
       appBarTheme: const AppBarTheme(
         backgroundColor: ApixColors.deepNavy,
         foregroundColor: ApixColors.white,
@@ -44,7 +56,7 @@ class AppTheme {
       ),
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
         backgroundColor: ApixColors.sparkOrange,
-        foregroundColor: ApixColors.white,
+        foregroundColor: ApixColors.onSparkOrange,
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
@@ -55,7 +67,7 @@ class AppTheme {
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: ApixColors.sparkOrange,
-          foregroundColor: ApixColors.white,
+          foregroundColor: ApixColors.onSparkOrange,
         ),
       ),
       cardTheme: CardThemeData(
@@ -64,36 +76,6 @@ class AppTheme {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
       dividerColor: ApixColors.borderBlue.withValues(alpha: 0.2),
-    );
-  }
-
-  static ThemeData get dark {
-    return ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.dark,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: ApixColors.deepNavy,
-        brightness: Brightness.dark,
-        primary: ApixColors.borderBlue,
-        secondary: ApixColors.sparkOrange,
-        surface: ApixColors.darkBg,
-        onPrimary: ApixColors.white,
-        onSecondary: ApixColors.white,
-      ),
-      appBarTheme: const AppBarTheme(
-        backgroundColor: ApixColors.darkBg,
-        foregroundColor: ApixColors.white,
-        elevation: 0,
-      ),
-      floatingActionButtonTheme: const FloatingActionButtonThemeData(
-        backgroundColor: ApixColors.sparkOrange,
-        foregroundColor: ApixColors.white,
-      ),
-      cardTheme: CardThemeData(
-        color: ApixColors.deepNavy,
-        elevation: 2,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
     );
   }
 }

@@ -20,15 +20,20 @@ class CacheStrategySelector extends StatelessWidget {
       runSpacing: 8,
       children: CacheStrategy.values.map((strategy) {
         final isSelected = strategy == selected;
+        final scheme = Theme.of(context).colorScheme;
         return FilledButton(
           onPressed: () => onChanged(strategy),
           style: FilledButton.styleFrom(
+            // Unselected chips take their colours from the scheme rather than
+            // a fixed navy-on-translucent-navy pair: that pair was legible on
+            // the light background it was designed for and unreadable on the
+            // dark one, where both ends collapsed towards black.
             backgroundColor: isSelected
                 ? ApixColors.sparkOrange
-                : ApixColors.deepNavy.withValues(alpha: 0.1),
+                : scheme.surfaceContainerHighest,
             foregroundColor: isSelected
-                ? ApixColors.white
-                : ApixColors.deepNavy,
+                ? ApixColors.onSparkOrange
+                : scheme.onSurfaceVariant,
           ),
           child: Text(_getLabel(strategy)),
         );

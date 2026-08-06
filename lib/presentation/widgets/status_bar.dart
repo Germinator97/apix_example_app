@@ -12,11 +12,12 @@ class StatusBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final metrics = lastMetrics;
+    final scheme = Theme.of(context).colorScheme;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: ApixColors.deepNavy.withValues(alpha: 0.05),
+        color: scheme.surfaceContainerHighest,
         border: Border(
           bottom: BorderSide(
             color: ApixColors.borderBlue.withValues(alpha: 0.2),
@@ -28,10 +29,12 @@ class StatusBar extends StatelessWidget {
         children: [
           Text(
             message,
-            style: const TextStyle(
+            style: TextStyle(
               fontFamily: 'monospace',
               fontSize: 13,
-              color: ApixColors.slateGray,
+              // From the scheme, not the fixed slateGray: that one is only
+              // legible on a light surface.
+              color: scheme.onSurface,
             ),
           ),
           if (metrics != null) ...[
@@ -43,9 +46,7 @@ class StatusBar extends StatelessWidget {
               style: TextStyle(
                 fontFamily: 'monospace',
                 fontSize: 11,
-                color: metrics.success
-                    ? ApixColors.borderBlue
-                    : Colors.red.shade400,
+                color: metrics.success ? scheme.onSurfaceVariant : scheme.error,
               ),
             ),
           ],
