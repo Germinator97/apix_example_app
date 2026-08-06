@@ -7,8 +7,13 @@ plugins {
 
 android {
     namespace = "com.example.apix_example_app"
-    compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    // Pinned above the Flutter defaults because plugins pulled in through apix
+    // — flutter_secure_storage, sentry_flutter, path_provider_android,
+    // package_info_plus — require them. Flutter only warns and builds anyway,
+    // so the mismatch is invisible until a toolchain that lacks the older NDK
+    // has to resolve it. Both are backward compatible.
+    compileSdk = 36
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
