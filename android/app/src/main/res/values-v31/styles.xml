@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ (API 31) replaced the windowBackground splash with the
+     SplashScreen API: the system draws the launcher icon on
+     `windowSplashScreenBackground`, and IGNORES `windowBackground` for that
+     frame. Setting it only in values/ would leave the splash following the
+     system theme on every modern device — i.e. black in dark mode, which is
+     the very thing being fixed.
+
+     Isolated in values-v31 because the attribute does not exist below API 31.
+-->
+<resources>
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:windowSplashScreenBackground">@color/splash_background</item>
+    </style>
+    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@color/splash_background</item>
+    </style>
+</resources>

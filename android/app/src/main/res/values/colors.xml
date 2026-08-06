@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#1E3A5F</color>
+
+    <!-- Splash background. White, matching the app's light-only theme.
+         Defined here rather than using ?android:colorBackground, which
+         resolves to the SYSTEM background and turns dark on a phone in dark
+         mode — the app itself never does. -->
+    <color name="splash_background">#FFFFFF</color>
 </resources>

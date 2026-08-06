@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The app is light-only (see AppTheme in lib/core/theme/), so there is no
+     values-night counterpart: this file applies in both system modes. -->
 <resources>
-    <!-- Theme applied to the Android Window while the process is starting when the OS's Dark Mode setting is off -->
+    <!-- Theme applied to the Android Window while the process is starting. -->
     <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <!-- Show a splash screen on the activity. Automatically removed when
              the Flutter engine draws its first frame -->
@@ -13,6 +15,8 @@
 
          This Theme is only used starting with V2 of Flutter's Android embedding. -->
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
-        <item name="android:windowBackground">?android:colorBackground</item>
+        <!-- Not ?android:colorBackground: that follows the system theme and
+             shows a dark frame behind the light Flutter UI in dark mode. -->
+        <item name="android:windowBackground">@color/splash_background</item>
     </style>
 </resources>
