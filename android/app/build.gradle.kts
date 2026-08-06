@@ -24,7 +24,11 @@ android {
         applicationId = "com.example.apix_example_app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // 24, not flutter.minSdkVersion (21): flutter_secure_storage 10.x
+        // declares minSdk 24, and the manifest merger fails the build outright
+        // rather than warning. apix depends on it for SecureTokenProvider, so
+        // any app using apix's auth features inherits this floor.
+        minSdk = maxOf(24, flutter.minSdkVersion)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
