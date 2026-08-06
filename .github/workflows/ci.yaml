@@ -1,0 +1,90 @@
+name: CI
+
+# This app depends on apix by `path: ../apix`, so it resolves to whatever is
+# checked out next to it. Without this workflow, a release of the package can
+# silently drift the example app — which is exactly what happened between
+# apix 2.1.0 and 2.3.0 (a stale `package:dio` import, and a retry demo that no
+# longer described the shipped policy).
+#
+# Flutter is pinned: the app requires Dart SDK ^3.8.0, i.e. Flutter >= 3.32.
+
+on:
+  push:
+    branches: [develop, master]
+  pull_request:
+    branches: [develop, master]
+
+env:
+  FLUTTER_VERSION: '3.32.0'
+
+jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Check formatting
+        run: dart format --set-exit-if-changed lib test
+
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: dart analyze --fatal-infos lib test
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Run tests
+        run: flutter test
+
+  lockfile:
+    # Reported separately from analyze/test so a dependency drift reads as a
+    # dependency drift, instead of burying the substantive signal. A failure
+    # here means the committed lock no longer satisfies the declared
+    # constraints — typically after apix changed its own dependencies:
+    # re-run `flutter pub get` locally and commit the refreshed lock.
+    name: Lockfile is current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Resolve with the committed lock enforced
+        run: flutter pub get --enforce-lockfile
