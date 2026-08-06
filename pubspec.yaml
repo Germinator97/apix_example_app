@@ -33,6 +33,30 @@ dev_dependencies:
   flutter_launcher_icons: ^0.14.0
   bloc_test: ^9.1.0
   mocktail: ^1.0.0
+  # Uploads debug symbols to Sentry. Without it a release stack trace reads
+  # `QKa: Provider<Gx> not found for Ez` — events still arrive, they are just
+  # unreadable, so the gap only surfaces in production.
+  sentry_dart_plugin: ^3.4.0
+
+# Read by `dart run sentry_dart_plugin`, which must be run after EVERY release
+# build — otherwise the symbols on Sentry drift out of step with the binary
+# users are running.
+#
+#     flutter build apk --release
+#     dart run sentry_dart_plugin
+#
+# Credentials live in a gitignored `sentry.properties` at the project root,
+# with flat keys (`org`, `project`, `auth_token`) — not the `defaults.*` form
+# the sentry-cli binary uses. See README.
+#
+# This demo app is never distributed and is only ever run in debug, where
+# nothing is obfuscated: the block is here to be copied, not because this app
+# needs it.
+sentry:
+  upload_debug_symbols: true
+  upload_source_maps: false
+  project: apix
+  org: germinator
 
 flutter_launcher_icons:
   android: true

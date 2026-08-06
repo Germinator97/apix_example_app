@@ -53,3 +53,6 @@ app.*.map.json
 # dependency, so it always resolves to the working copy.
 ios/Podfile.lock
 android/app/build/
+
+# Sentry auth token for `dart run sentry_dart_plugin`. Never committed.
+sentry.properties

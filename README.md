@@ -37,6 +37,38 @@ await SentrySetup.init(
 `SentrySetupOptions.development(...)` is the shorter form, but it does **not**
 forward `configureOptions`, so the options are spelled out here.
 
+The DSN is supplied at build time and never committed:
+
+```bash
+flutter run --dart-define=SENTRY_DSN=https://…@…ingest.sentry.io/…
+```
+
+An empty DSN disables Sentry rather than initialising it with nothing, so a
+fresh clone runs and the CI builds without a secret.
+
+**Debug symbols.** `sentry_flutter` reports errors; it does not upload the
+symbols that make a release stack trace readable. `pubspec.yaml` therefore
+carries a `sentry:` block and `sentry_dart_plugin`, and credentials go in a
+**gitignored** `sentry.properties` at the project root:
+
+```properties
+org=your-org
+project=your-project
+auth_token=sntrys_...
+```
+
+```bash
+flutter build apk --release
+dart run sentry_dart_plugin   # after EVERY release build
+```
+
+Skip it and nothing fails — events still arrive — they are just unreadable:
+`QKa: Provider<Gx> not found for Ez`. Debug builds are unaffected, which is
+why the gap only shows up in production.
+
+> This app is never distributed and only ever runs in debug, so it does not
+> need the upload itself. The wiring is here to be copied.
+
 ### 1. Client setup (`lib/core/services/api_client_provider.dart`)
 
 One declarative `ApiClientFactory.create` call wires auth, retry, logging,
