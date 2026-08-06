@@ -6,6 +6,21 @@ name: CI
 # apix 2.1.0 and 2.3.0 (a stale `package:dio` import, and a retry demo that no
 # longer described the shipped policy).
 #
+# That path dependency is also why every job checks out TWO repositories into
+# sibling directories:
+#
+#     $GITHUB_WORKSPACE/
+#     ├── apix_example_app/   <- this repo
+#     └── apix/               <- the package, so ../apix resolves
+#
+# A runner clones only the repository that triggered the run, so without the
+# second checkout `pub get` fails with "could not find package apix at
+# ../apix" — which is what happened the first time this workflow ran.
+#
+# apix is taken from `develop`, not a tag, on purpose: the point of this CI is
+# to catch drift between the package and the app as it happens. A red build
+# here after a package change is the signal, not a nuisance.
+#
 # Flutter is pinned: the app requires Dart SDK ^3.8.0, i.e. Flutter >= 3.32.
 
 on:
@@ -16,13 +31,19 @@ on:
 
 env:
   FLUTTER_VERSION: '3.32.0'
+  APIX_REF: develop
 
 jobs:
   format:
     name: Format
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apix_example_app
     steps:
       - uses: actions/checkout@v5
+        with:
+          path: apix_example_app
 
       - uses: subosito/flutter-action@v2
         with:
@@ -30,14 +51,26 @@ jobs:
           channel: 'stable'
           cache: true
 
+      # No apix checkout here: `dart format` does not resolve dependencies.
       - name: Check formatting
         run: dart format --set-exit-if-changed lib test
 
   analyze:
     name: Analyze
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apix_example_app
     steps:
       - uses: actions/checkout@v5
+        with:
+          path: apix_example_app
+
+      - uses: actions/checkout@v5
+        with:
+          repository: Germinator97/apix
+          ref: ${{ env.APIX_REF }}
+          path: apix
 
       - uses: subosito/flutter-action@v2
         with:
@@ -54,8 +87,19 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apix_example_app
     steps:
       - uses: actions/checkout@v5
+        with:
+          path: apix_example_app
+
+      - uses: actions/checkout@v5
+        with:
+          repository: Germinator97/apix
+          ref: ${{ env.APIX_REF }}
+          path: apix
 
       - uses: subosito/flutter-action@v2
         with:
@@ -76,8 +120,19 @@ jobs:
     # and nothing in CI compiled it. A green analyze is not a shippable app.
     name: Build APK
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apix_example_app
     steps:
       - uses: actions/checkout@v5
+        with:
+          path: apix_example_app
+
+      - uses: actions/checkout@v5
+        with:
+          repository: Germinator97/apix
+          ref: ${{ env.APIX_REF }}
+          path: apix
 
       - uses: actions/setup-java@v4
         with:
@@ -106,8 +161,19 @@ jobs:
     # re-run `flutter pub get` locally and commit the refreshed lock.
     name: Lockfile is current
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apix_example_app
     steps:
       - uses: actions/checkout@v5
+        with:
+          path: apix_example_app
+
+      - uses: actions/checkout@v5
+        with:
+          repository: Germinator97/apix
+          ref: ${{ env.APIX_REF }}
+          path: apix
 
       - uses: subosito/flutter-action@v2
         with:
