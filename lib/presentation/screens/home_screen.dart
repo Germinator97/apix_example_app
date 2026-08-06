@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../core/di/injection_container.dart';
 import '../../core/services/api_client_provider.dart';
+import '../../core/services/error_tracking_demo_client.dart';
 import '../../core/services/retry_policy_demo_client.dart';
 import '../../core/theme/app_theme.dart';
 import '../blocs/envelope/envelope_bloc.dart';
@@ -25,6 +26,7 @@ import '../blocs/retry_policy/retry_policy_state.dart';
 import '../blocs/sentry/sentry_bloc.dart';
 import '../blocs/sentry/sentry_event.dart';
 import '../blocs/sentry/sentry_state.dart';
+import '../blocs/tracking/tracking_bloc.dart';
 import '../blocs/users/users_bloc.dart';
 import '../blocs/users/users_event.dart';
 import '../blocs/users/users_state.dart';
@@ -45,6 +47,7 @@ class HomeScreen extends StatelessWidget {
         BlocProvider(create: (_) => sl<EnvelopeBloc>()),
         BlocProvider(create: (_) => sl<Epic11Bloc>()),
         BlocProvider(create: (_) => sl<RetryPolicyBloc>()),
+        BlocProvider(create: (_) => sl<TrackingBloc>()),
         BlocProvider(create: (_) => sl<SentryBloc>()),
       ],
       child: const _HomeScreenContent(),
@@ -64,6 +67,28 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
   CacheStrategy _selectedStrategy = CacheStrategy.networkFirst;
 
   ApiClientProvider get _provider => sl<ApiClientProvider>();
+
+  @override
+  void initState() {
+    super.initState();
+    _reportRestoredCache();
+  }
+
+  /// Shows what the on-disk cache still held at launch.
+  ///
+  /// This is the whole point of `FileCacheStorage`: kill the app, reopen it,
+  /// and the entries are still there. With the default `InMemoryCacheStorage`
+  /// this count would be 0 on every cold start.
+  Future<void> _reportRestoredCache() async {
+    final keys = await _provider.cacheInterceptor.getCacheKeys();
+    if (!mounted) return;
+    _updateStatus(
+      keys.isEmpty
+          ? 'Ready — no cache on disk yet. Fetch posts, then relaunch.'
+          : '💾 Restored ${keys.length} cache '
+                '${keys.length == 1 ? 'entry' : 'entries'} from disk',
+    );
+  }
 
   void _updateStatus(String message) {
     setState(() => _statusMessage = message);
@@ -114,6 +139,7 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
           BlocListener<RetryPolicyBloc, RetryPolicyState>(
             listener: _onRetryPolicyState,
           ),
+          BlocListener<TrackingBloc, TrackingState>(listener: _onTrackingState),
           BlocListener<SentryBloc, SentryState>(listener: _onSentryState),
         ],
         child: Column(
@@ -320,6 +346,25 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
                       ),
                     ),
                   ]),
+                  const SizedBox(height: 8),
+                  // Unlike the Sentry section below — which throws
+                  // hand-made exceptions — these two travel the real
+                  // interceptor chain, so they show what apix actually hands
+                  // to the tracker.
+                  _buildSection(context, '📤 v3.0 — What reaches the tracker', [
+                    _btn(
+                      '500 → reported',
+                      () => context.read<TrackingBloc>().add(
+                        const RunTrackingProbe(TrackingProbe.serverError),
+                      ),
+                    ),
+                    _btn(
+                      'Connection lost → filtered',
+                      () => context.read<TrackingBloc>().add(
+                        const RunTrackingProbe(TrackingProbe.connectionLost),
+                      ),
+                    ),
+                  ]),
                   const SizedBox(height: 16),
                   _buildSection(context, '🐛 Sentry Integration', [
                     _sentryBtn(
@@ -364,6 +409,7 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
                         return PostList(
                           posts: state.posts,
                           fromCache: state.fromCache,
+                          fromCacheStale: state.fromCacheStale,
                         );
                       }
                       return const SizedBox.shrink();
@@ -400,7 +446,7 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
       _updateStatus(
         '✅ [${state.strategy.name}] ${state.posts.length} posts in '
         '${state.duration.inMilliseconds}ms'
-        '${state.fromCache ? ' (from cache)' : ''}',
+        '${_cacheSuffix(state)}',
       );
     } else if (state is PostCreated) {
       _updateStatus('✅ Created post #${state.post.id}: ${state.post.title}');
@@ -426,6 +472,15 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
       final tag = state.strategy != null ? '[${state.strategy!.name}] ' : '';
       _updateStatus('❌ ${tag}Error: ${state.message}');
     }
+  }
+
+  /// Says where the list came from — and, when it came from the cache past its
+  /// TTL, that it may no longer be current.
+  String _cacheSuffix(PostsLoaded state) {
+    if (!state.fromCache) return '';
+    return state.fromCacheStale
+        ? ' (from cache — stale, refreshing)'
+        : ' (from cache)';
   }
 
   void _onEnvelopeState(BuildContext context, EnvelopeState state) {
@@ -474,6 +529,24 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
     RetryProbe.forcedPost => 'POST + forceRetry()',
   };
 
+  void _onTrackingState(BuildContext context, TrackingState state) {
+    if (state is TrackingRunning) {
+      _updateStatus('⏳ Probing what the tracker receives...');
+    } else if (state is TrackingMeasured) {
+      final r = state.result;
+      // Says both what the caller caught and what the tracker got: the 3.0.0
+      // change is that these are now the same typed exception.
+      _updateStatus(
+        r.reachesDashboard
+            ? '📤 Caught ${r.caught} → tracker got ${r.reported} → in Sentry'
+            : '🔇 Caught ${r.caught} → tracker got ${r.reported} → '
+                  'filtered as noise',
+      );
+    } else if (state is TrackingUnexpected) {
+      _updateStatus('⚠️ ${state.reason}');
+    }
+  }
+
   void _onSentryState(BuildContext context, SentryState state) {
     if (state is SentryTesting) {
       _updateStatus('🔍 Testing Sentry: ${state.testName}...');
@@ -498,9 +571,11 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
       children: [
         Text(
           title,
-          style: Theme.of(
-            context,
-          ).textTheme.titleSmall?.copyWith(color: Colors.grey.shade600),
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+            // Scheme-derived: Colors.grey.shade600 was picked against the light
+            // background and disappears on the dark one.
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
         ),
         const SizedBox(height: 8),
         Wrap(spacing: 8, runSpacing: 8, children: children),

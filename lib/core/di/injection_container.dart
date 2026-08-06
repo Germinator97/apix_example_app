@@ -1,5 +1,6 @@
 import 'package:apix/apix.dart';
 import 'package:get_it/get_it.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../data/datasources/local_data_source.dart';
 import '../../data/datasources/remote_data_source.dart';
@@ -24,10 +25,12 @@ import '../../presentation/blocs/epic11/epic11_bloc.dart';
 import '../../presentation/blocs/posts/posts_bloc.dart';
 import '../../presentation/blocs/retry_policy/retry_policy_bloc.dart';
 import '../../presentation/blocs/sentry/sentry_bloc.dart';
+import '../../presentation/blocs/tracking/tracking_bloc.dart';
 import '../../presentation/blocs/users/users_bloc.dart';
 import '../services/api_client_provider.dart';
 import '../services/envelope_demo_client.dart';
 import '../services/epic11_demo_client.dart';
+import '../services/error_tracking_demo_client.dart';
 import '../services/retry_policy_demo_client.dart';
 
 final sl = GetIt.instance;
@@ -39,11 +42,18 @@ final sl = GetIt.instance;
 /// - the main one against JSONPlaceholder (auth/retry/cache/logging/metrics)
 /// - a tiny mocked one for the envelope-API demo (`{data: ...}` payloads)
 Future<void> initDependencies() async {
+  // Resolved here, not inside apix: the package takes a Directory so it needs
+  // no dependency on path_provider.
+  final cacheDirectory = await getTemporaryDirectory();
+
   // ============================================================
   // INFRASTRUCTURE
   // ============================================================
   sl.registerLazySingleton<ApiClientProvider>(
-    () => ApiClientProvider(baseUrl: 'https://jsonplaceholder.typicode.com'),
+    () => ApiClientProvider(
+      baseUrl: 'https://jsonplaceholder.typicode.com',
+      cacheDirectory: cacheDirectory,
+    ),
   );
 
   sl.registerLazySingleton<EnvelopeDemoClient>(EnvelopeDemoClient.new);
@@ -51,6 +61,10 @@ Future<void> initDependencies() async {
   sl.registerLazySingleton<Epic11DemoClient>(Epic11DemoClient.new);
 
   sl.registerLazySingleton<RetryPolicyDemoClient>(RetryPolicyDemoClient.new);
+
+  sl.registerLazySingleton<ErrorTrackingDemoClient>(
+    ErrorTrackingDemoClient.new,
+  );
 
   sl.registerLazySingleton<TokenProvider>(
     () => sl<ApiClientProvider>().tokenProvider,
@@ -111,5 +125,6 @@ Future<void> initDependencies() async {
   sl.registerFactory(() => EnvelopeBloc(client: sl()));
   sl.registerFactory(() => Epic11Bloc(client: sl()));
   sl.registerFactory(() => RetryPolicyBloc(client: sl()));
+  sl.registerFactory(() => TrackingBloc(client: sl()));
   sl.registerFactory(() => SentryBloc(testSentry: sl()));
 }
