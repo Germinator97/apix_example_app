@@ -74,6 +74,15 @@ class ApiClientProvider {
         // v2.1: honour `Retry-After` header on 429/503 — capped at maxDelayMs.
         // True is the apix default; pinned here for explicit documentation.
         respectRetryAfter: true,
+        // v2.3: `retryableMethods` is left at its default — the idempotent
+        // methods of RFC 7231 §4.2.2 ({GET, HEAD, OPTIONS, TRACE, PUT,
+        // DELETE}). Concretely, the three writes this client performs
+        // (`createPost`, `patchPost`, `uploadFile`) are NO LONGER replayed on
+        // a 5xx: a gateway 502/504 arriving after the server committed would
+        // otherwise duplicate the post/upload. To replay one anyway, opt in
+        // per request with `forceRetry()` and make it safe with an
+        // `Idempotency-Key` — see `RetryPolicyDemoClient`, which measures
+        // both behaviours.
       ),
       loggerConfig: LoggerConfig(
         level: kDebugMode ? LogLevel.info : LogLevel.error,

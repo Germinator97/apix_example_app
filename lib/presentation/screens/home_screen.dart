@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../core/di/injection_container.dart';
 import '../../core/services/api_client_provider.dart';
+import '../../core/services/retry_policy_demo_client.dart';
 import '../../core/theme/app_theme.dart';
 import '../blocs/envelope/envelope_bloc.dart';
 import '../blocs/envelope/envelope_event.dart';
@@ -18,6 +19,9 @@ import '../blocs/epic11/epic11_state.dart';
 import '../blocs/posts/posts_bloc.dart';
 import '../blocs/posts/posts_event.dart';
 import '../blocs/posts/posts_state.dart';
+import '../blocs/retry_policy/retry_policy_bloc.dart';
+import '../blocs/retry_policy/retry_policy_event.dart';
+import '../blocs/retry_policy/retry_policy_state.dart';
 import '../blocs/sentry/sentry_bloc.dart';
 import '../blocs/sentry/sentry_event.dart';
 import '../blocs/sentry/sentry_state.dart';
@@ -40,6 +44,7 @@ class HomeScreen extends StatelessWidget {
         BlocProvider(create: (_) => sl<PostsBloc>()),
         BlocProvider(create: (_) => sl<EnvelopeBloc>()),
         BlocProvider(create: (_) => sl<Epic11Bloc>()),
+        BlocProvider(create: (_) => sl<RetryPolicyBloc>()),
         BlocProvider(create: (_) => sl<SentryBloc>()),
       ],
       child: const _HomeScreenContent(),
@@ -106,6 +111,9 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
           BlocListener<PostsBloc, PostsState>(listener: _onPostsState),
           BlocListener<EnvelopeBloc, EnvelopeState>(listener: _onEnvelopeState),
           BlocListener<Epic11Bloc, Epic11State>(listener: _onEpic11State),
+          BlocListener<RetryPolicyBloc, RetryPolicyState>(
+            listener: _onRetryPolicyState,
+          ),
           BlocListener<SentryBloc, SentryState>(listener: _onSentryState),
         ],
         child: Column(
@@ -289,6 +297,29 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
                       ),
                     ),
                   ]),
+                  const SizedBox(height: 8),
+                  // Every route below replies 503, so only the HTTP method
+                  // (and an explicit opt-in) decides whether apix replays it.
+                  _buildSection(context, '🔁 v2.3 — Method-aware retry', [
+                    _btn(
+                      'GET (idempotent)',
+                      () => context.read<RetryPolicyBloc>().add(
+                        const RunRetryProbe(RetryProbe.idempotentGet),
+                      ),
+                    ),
+                    _btn(
+                      'POST (not replayed)',
+                      () => context.read<RetryPolicyBloc>().add(
+                        const RunRetryProbe(RetryProbe.nonIdempotentPost),
+                      ),
+                    ),
+                    _btn(
+                      'POST + forceRetry()',
+                      () => context.read<RetryPolicyBloc>().add(
+                        const RunRetryProbe(RetryProbe.forcedPost),
+                      ),
+                    ),
+                  ]),
                   const SizedBox(height: 16),
                   _buildSection(context, '🐛 Sentry Integration', [
                     _sentryBtn(
@@ -421,6 +452,27 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
       _updateStatus('⚠️ ${state.scenario}: ${state.reason}');
     }
   }
+
+  void _onRetryPolicyState(BuildContext context, RetryPolicyState state) {
+    if (state is RetryPolicyRunning) {
+      _updateStatus('⏳ Probing retry policy (${_probeLabel(state.probe)})...');
+    } else if (state is RetryPolicyMeasured) {
+      final r = state.result;
+      _updateStatus(
+        '${r.wasRetried ? '🔁' : '🛑'} ${_probeLabel(r.probe)} — server hit '
+        '${r.attempts}x '
+        '(${r.wasRetried ? 'replayed' : 'not replayed'})',
+      );
+    } else if (state is RetryPolicyUnexpected) {
+      _updateStatus('⚠️ ${_probeLabel(state.probe)}: ${state.reason}');
+    }
+  }
+
+  String _probeLabel(RetryProbe probe) => switch (probe) {
+    RetryProbe.idempotentGet => 'GET',
+    RetryProbe.nonIdempotentPost => 'POST',
+    RetryProbe.forcedPost => 'POST + forceRetry()',
+  };
 
   void _onSentryState(BuildContext context, SentryState state) {
     if (state is SentryTesting) {
