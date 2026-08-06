@@ -69,6 +69,35 @@ jobs:
       - name: Run tests
         run: flutter test
 
+  build:
+    # Analyze and test both pass on code that does not build: the Android
+    # manifest merger rejected this app for months because
+    # flutter_secure_storage 10.x requires minSdk 24 while the app declared 21,
+    # and nothing in CI compiled it. A green analyze is not a shippable app.
+    name: Build APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # No --dart-define=SENTRY_DSN here: main.dart falls back to an empty DSN
+      # and disables Sentry, so the build must not need a secret.
+      - name: Build debug APK
+        run: flutter build apk --debug
+
   lockfile:
     # Reported separately from analyze/test so a dependency drift reads as a
     # dependency drift, instead of burying the substantive signal. A failure

@@ -108,19 +108,52 @@ observed behaviour, so widening `retryableMethods` fails the suite.
 
 ### 4. Caching (`lib/data/datasources/remote_data_source.dart`)
 
-Per-request strategy override, plus the invalidation API:
+Per-request strategy override, plus the provenance of what came back:
 
 ```dart
 final response = await _client.get<dynamic>(
   '/posts',
   options: Options(extra: {'cacheStrategy': effective}),
 );
-_lastFromCache = CacheRequestExtension.isFromCache(response);
+_lastFromCache = response.isFromCache;
+_lastFromCacheStale = response.isStale;
 ```
+
+Since apix 3.0.0, `cacheFirst` serves the cache **even when expired** and
+refreshes in the background, and `networkFirst` falls back to a possibly
+expired entry when the network is gone. Both flag it with `isStale`, which the
+app carries all the way to the UI: the badge on the post list reads *"from
+cache"* or *"from earlier — refreshing"*, and the status bar says so too.
+The wording differs on purpose — the second one changes what the user should
+do with the numbers on screen.
 
 `clearCache`, `invalidateUrl`, `invalidatePath`, `invalidateByPrefix` and
 `getCacheKeys` are all exercised from the *Cache Actions* section of the home
 screen.
+
+The app's cache is **persistent**: it uses `FileCacheStorage`, wired in
+`ApiClientProvider` from a directory the app resolves with `path_provider` and
+hands to apix (which deliberately depends on neither).
+
+```dart
+storage: FileCacheStorage(
+  Directory('${cacheDirectory.path}/apix_cache'),
+  maxEntries: 100,
+),
+```
+
+**See it for yourself**: fetch posts, kill the app, reopen it. The status bar
+reports `💾 Restored N cache entries from disk` on launch, and *Inspect Keys*
+lists them. With the default `InMemoryCacheStorage` that count is 0 on every
+cold start — which is exactly when the wait is most visible.
+
+The cap is deliberate: a process cache disappears when the app closes, a disk
+cache does not. Pass `maxEntries: null` to opt out. Expired entries are evicted
+before valid ones.
+
+> ⚠️ Entries are stored in **clear text**. JSONPlaceholder posts are public
+> sample data; this would be the wrong place for anything carrying identity or
+> money.
 
 ### 5. Error handling (`lib/core/error/wrap_exceptions.dart`)
 
@@ -156,7 +189,20 @@ Four failure modes, each surfaced as a typed exception:
 
 Plus a deliberately broken `TokenProvider` to raise `TokenProviderException`.
 
-### 8. Logging & metrics (`lib/core/services/api_client_provider.dart`)
+### 8. Error tracking (`lib/core/services/api_client_provider.dart`)
+
+Since apix 3.0.0, `ErrorTrackingConfig.onError` receives the **typed**
+`ApiException`, so Sentry files a 500 (`ServerException`) and a 404
+(`NotFoundException`) as separate issues rather than lumping everything under
+`DioException`.
+
+Transport failures are then filtered as network noise: tap a cache strategy
+with the network down and the status bar reports
+`❌ Error: Service temporairement indisponible` with `· connectionError`, but
+**nothing reaches Sentry** — a user's dropped connection is not an incident.
+Genuine server and client errors always do.
+
+### 9. Logging & metrics (`lib/core/services/api_client_provider.dart`)
 
 Both are declarative on the factory call; the metrics callback feeds the
 status bar at the top of the screen:
