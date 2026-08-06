@@ -1,155 +1,173 @@
 # Apix Example
 
-A Flutter app demonstrating all major features of the **apix** package.
+A Flutter app demonstrating the **apix** package, wired the way a real app
+would be: Clean Architecture (data → domain → presentation), BLoC, and GetIt.
+
+The app depends on apix by **path** (`../apix`), so it always runs against the
+working copy of the package — which is exactly why it is CI-gated (see
+`.github/workflows/ci.yaml`): a change in apix must not be able to drift this
+app in silence.
+
+Every snippet below is lifted from the file named in its heading.
 
 ## Features Demonstrated
 
-### 0. Sentry Integration (`lib/main.dart`)
-
-Full Sentry error tracking setup:
+### 0. Sentry setup (`lib/main.dart`)
 
 ```dart
-void main() async {
-  SentryWidgetsFlutterBinding.ensureInitialized();
-
-  await SentrySetup.init(
-    options: SentrySetupOptions(
-      dsn: 'https://example@sentry.io/example',
-      environment: 'development',
-    ),
-    appRunner: () async {
-      runApp(const ApixExampleApp());
+await SentrySetup.init(
+  options: SentrySetupOptions(
+    dsn: 'YOUR_DSN_HERE',
+    environment: 'development',
+    tracesSampleRate: 0.0,
+    profilesSampleRate: 0.0,
+    replayOnErrorSampleRate: 0.0,
+    replaySessionSampleRate: 0.0,
+    // v2.2: escape hatch for SentryFlutterOptions apix doesn't surface.
+    configureOptions: (sentryOptions) {
+      sentryOptions.maxBreadcrumbs = 200;
     },
-  );
-}
-```
-
-### 1. API Client Setup (`lib/api/api_service.dart`)
-
-Shows how to create a fully configured API client:
-
-```dart
-final client = ApiClientFactory.create(
-  baseUrl: 'https://jsonplaceholder.typicode.com',
-  connectTimeout: const Duration(seconds: 30),
-  headers: {'X-App-Version': '1.0.0'},
+  ),
+  appRunner: () async {
+    runApp(const ApixExampleApp());
+  },
 );
 ```
 
-### 2. Secure Token Storage (`lib/data/datasources/local_data_source.dart`)
+`SentrySetupOptions.development(...)` is the shorter form, but it does **not**
+forward `configureOptions`, so the options are spelled out here.
 
-Uses apix's built-in `SecureTokenProvider` for zero-boilerplate secure storage:
+### 1. Client setup (`lib/core/services/api_client_provider.dart`)
+
+One declarative `ApiClientFactory.create` call wires auth, retry, logging,
+error tracking and metrics. The cache interceptor is passed in as a custom
+interceptor so the app can hold the *same* instance it uses for invalidation:
 
 ```dart
-// LocalDataSource wraps SecureTokenProvider
-final localDataSource = LocalDataSource();
+final c = ApiClientFactory.create(
+  baseUrl: baseUrl,
+  authConfig: _authConfig,
+  retryConfig: const RetryConfig(...),
+  loggerConfig: LoggerConfig(...),
+  errorTrackingConfig: ErrorTrackingConfig(...),
+  metricsConfig: MetricsConfig(...),
+  strictContentType: true,
+  interceptors: [cacheInterceptor],
+);
 
-// Access the token provider for auth config
-final tokenProvider = localDataSource.tokenProvider;
+// Required for `invalidateUrl(<relative>)` to resolve against baseUrl.
+cacheInterceptor.setDio(c.dio);
+```
 
-// Store additional secrets using shared storage
+### 2. Secure token storage (`lib/data/datasources/local_data_source.dart`)
+
+`SecureTokenProvider` gives zero-boilerplate secure storage, and the same
+backing store is reusable for other secrets:
+
+```dart
 await localDataSource.writeSecret('firebase_token', token);
 ```
 
-With simplified refresh flow:
+The simplified refresh flow is configured in `ApiClientProvider`: a
+`refreshEndpoint` plus `onTokenRefreshed` to persist, and `onAuthFailure` to
+clear the session and report to Sentry.
+
+### 3. Retry — method-aware since apix 2.3.0 (`lib/core/services/retry_policy_demo_client.dart`)
+
+Retry combines exponential backoff, `Retry-After`, **and** an idempotency
+guard. `RetryConfig.retryableMethods` defaults to the idempotent methods of
+RFC 7231 §4.2.2 — `{GET, HEAD, OPTIONS, TRACE, PUT, DELETE}` — so **`POST` and
+`PATCH` are not replayed**. Replaying a write after a `5xx` the server may
+already have committed (a gateway `502`/`504` following an order) would
+duplicate the side effect.
+
+The app's own writes (`createPost`, `patchPost`, `uploadFile`) are therefore
+never retried. To replay one anyway, opt in per request — and make the replay
+safe with an idempotency key:
 
 ```dart
-AuthConfig(
-  tokenProvider: tokenProvider,
-  refreshEndpoint: '/auth/refresh',
-  onTokenRefreshed: (response) async {
-    final data = response.data as Map<String, dynamic>;
-    await tokenProvider.saveTokens(
-      data['access_token'],
-      data['refresh_token'],
-    );
-  },
-)
-```
-
-### 3. Retry Logic
-
-Automatic retries with exponential backoff:
-
-```dart
-final retryInterceptor = RetryInterceptor(
-  config: const RetryConfig(
-    maxAttempts: 3,
-    retryStatusCodes: [408, 429, 500, 502, 503, 504],
-    baseDelayMs: 1000,
-    multiplier: 2.0,
+await _client.post<dynamic>(
+  '/flaky',
+  data: {'quantity': 2},
+  options: Options(
+    headers: {'Idempotency-Key': 'demo-fixed-key-0001'},
+    extra: {forceRetryKey: true},
   ),
-  dio: client.dio,
 );
 ```
 
-### 4. Caching
+`forceRetry()` overrides the method guard **only**: the status-code guard, the
+no-response network guard and `maxAttempts` still apply, and `disableRetry()`
+still wins over it.
 
-Multiple caching strategies:
+The **🔁 v2.3 — Method-aware retry** section of the home screen runs three
+probes against an always-`503` route and reports how many times the server was
+actually hit: `GET` → replayed, `POST` → hit once, `POST` + `forceRetry()` →
+replayed. `test/retry/retry_policy_test.dart` asserts both the policy and the
+observed behaviour, so widening `retryableMethods` fails the suite.
+
+### 4. Caching (`lib/data/datasources/remote_data_source.dart`)
+
+Per-request strategy override, plus the invalidation API:
 
 ```dart
-// Cache-first for static data
-final response = await client.get(
+final response = await _client.get<dynamic>(
   '/posts',
-  options: Options(extra: {
-    'cacheStrategy': CacheStrategy.cacheFirst,
-  }),
+  options: Options(extra: {'cacheStrategy': effective}),
 );
+_lastFromCache = CacheRequestExtension.isFromCache(response);
 ```
 
-### 5. Error Handling with Result
+`clearCache`, `invalidateUrl`, `invalidatePath`, `invalidateByPrefix` and
+`getCacheKeys` are all exercised from the *Cache Actions* section of the home
+screen.
 
-Functional error handling without try/catch:
+### 5. Error handling (`lib/core/error/wrap_exceptions.dart`)
+
+Typed apix exceptions are mapped to domain `Failure`s at the repository
+boundary, so the BLoCs never see an `ApiException`:
 
 ```dart
-final result = await api.getUsersSafe();
-
-result.when(
-  success: (users) => print('Got ${users.length} users'),
-  failure: (error) => print('Error: ${error.message}'),
-);
+final result = await wrapExceptions(() => _remoteDataSource.getPosts());
 ```
 
-### 6. Logging & Metrics
+apix's `ErrorMapperInterceptor` specialises `401`/`403`/`404` into
+`UnauthorizedException` / `ForbiddenException` / `NotFoundException`, maps
+every other `4xx` to `ClientException` and every `5xx` to `ServerException`, so
+`on ClientException` / `on ServerException` are usable for whole-category
+handling.
 
-Request logging and performance tracking:
+### 6. Envelope API (`lib/core/services/envelope_demo_client.dart`)
+
+`{"payload": ...}` responses unwrapped by the `*Data` family:
+`getAndDecodeData`, `getListAndDecodeData`, `getListAndParseData`,
+`postAndDecodeData`.
+
+### 7. Robustness — apix 2.1 (`lib/core/services/epic11_demo_client.dart`)
+
+Four failure modes, each surfaced as a typed exception:
+
+| Route | Raises |
+|---|---|
+| `/malformed-json` | `ParsingException` |
+| `/captive-portal` (returns `text/html`) | `UnexpectedContentTypeException` |
+| `/business-error` (`200` + `{"success": false}`) | custom `BusinessException` via `responseValidator` |
+| `/throttled` (`503` + `Retry-After: 1`) | succeeds after honouring the header |
+
+Plus a deliberately broken `TokenProvider` to raise `TokenProviderException`.
+
+### 8. Logging & metrics (`lib/core/services/api_client_provider.dart`)
+
+Both are declarative on the factory call; the metrics callback feeds the
+status bar at the top of the screen:
 
 ```dart
-final loggerInterceptor = LoggerInterceptor(
-  config: const LoggerConfig(
-    level: LogLevel.info,
-    redactedHeaders: ['Authorization'],
-  ),
-);
-
-final metricsInterceptor = MetricsInterceptor(
-  config: MetricsConfig(
-    onMetrics: (metrics) {
-      print('${metrics.method} ${metrics.path} ${metrics.durationMs}ms');
-    },
-  ),
-);
-```
-
-### 7. Sentry Interceptor
-
-HTTP error capturing and breadcrumbs:
-
-```dart
-final sentryInterceptor = SentryInterceptor(
-  config: ErrorTrackingConfig(
-    captureStatusCodes: {500, 501, 502, 503, 504},
-    onError: (Object e, StackTrace? stackTrace, {Map<String, dynamic>? extra, Map<String, String>? tags}) async {
-      await Sentry.captureException(e, stackTrace: stackTrace);
-    },
-    onBreadcrumb: (Map<String, dynamic> data) {
-      Sentry.addBreadcrumb(Breadcrumb(
-        message: data['message'] as String?,
-        category: data['category'] as String?,
-      ));
-    },
-  ),
-);
+metricsConfig: MetricsConfig(
+  onMetrics: (metrics) {
+    lastMetrics = metrics;
+    ...
+  },
+),
 ```
 
 ## Supported Platforms
@@ -165,33 +183,45 @@ flutter pub get
 flutter run
 ```
 
+## Checks
+
+```bash
+dart format --set-exit-if-changed lib test
+dart analyze --fatal-infos lib test
+flutter test
+```
+
 ## API Used
 
-This example uses [JSONPlaceholder](https://jsonplaceholder.typicode.com/),
-a free fake REST API for testing.
+This example uses [JSONPlaceholder](https://jsonplaceholder.typicode.com/), a
+free fake REST API for testing. The demo clients in `lib/core/services/`
+(`envelope`, `epic11`, `retry_policy`) run against in-memory mock adapters
+instead, so their scenarios are deterministic and offline.
 
 ## Structure
 
 ```
 apix_example_app/
 ├── lib/
-│   ├── main.dart                     # App entry with SentrySetup
+│   ├── main.dart                            # Entry point + SentrySetup
 │   ├── core/
-│   │   ├── di/injection_container.dart   # GetIt dependency injection
-│   │   ├── network/api_client_factory.dart # Full interceptor setup
+│   │   ├── di/injection_container.dart      # GetIt wiring
+│   │   ├── error/                           # Failures + wrapExceptions
+│   │   ├── services/
+│   │   │   ├── api_client_provider.dart     # The real, fully-wired client
+│   │   │   ├── envelope_demo_client.dart    # {"payload": ...} demo
+│   │   │   ├── epic11_demo_client.dart      # v2.1 robustness demo
+│   │   │   └── retry_policy_demo_client.dart# v2.3 method-aware retry demo
 │   │   └── theme/app_theme.dart
 │   ├── data/
-│   │   ├── datasources/
-│   │   │   ├── local_data_source.dart    # SecureTokenProvider wrapper
-│   │   │   └── remote_data_source.dart
+│   │   ├── datasources/                     # local (secure storage) + remote
+│   │   ├── models/
 │   │   └── repositories/
-│   ├── domain/
-│   │   ├── entities/
-│   │   ├── repositories/
-│   │   └── usecases/
+│   ├── domain/                              # entities, repositories, usecases
 │   └── presentation/
-│       ├── blocs/
+│       ├── blocs/                           # users, posts, envelope,
+│       │                                    # epic11, retry_policy, sentry
 │       ├── screens/home_screen.dart
 │       └── widgets/
-└── pubspec.yaml
+└── test/
 ```
