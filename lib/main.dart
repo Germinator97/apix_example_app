@@ -14,7 +14,26 @@ void main() async {
   await initDependencies();
 
   await SentrySetup.init(
-    options: SentrySetupOptions.development(dsn: 'YOUR_DSN_HERE'),
+    // Same values as `SentrySetupOptions.development(...)`, spelled out because
+    // the convenience factories don't forward `configureOptions` (apix 2.2.0).
+    options: SentrySetupOptions(
+      dsn: 'YOUR_DSN_HERE',
+      environment: 'development',
+      tracesSampleRate: 0.0,
+      profilesSampleRate: 0.0,
+      replayOnErrorSampleRate: 0.0,
+      replaySessionSampleRate: 0.0,
+      // v2.2: escape hatch for `SentryFlutterOptions` apix doesn't surface.
+      // Runs LAST, after every apix default, so it can override anything —
+      // including `beforeSend`. To *compose* with apix's network-noise filter
+      // rather than replace it, use `customBeforeSend` instead.
+      configureOptions: (sentryOptions) {
+        // apix exposes no knob for the breadcrumb ring buffer; this demo keeps
+        // a longer trail so the request breadcrumbs emitted by
+        // `ErrorTrackingConfig.onBreadcrumb` survive a long tapping session.
+        sentryOptions.maxBreadcrumbs = 200;
+      },
+    ),
     appRunner: () async {
       runApp(const ApixExampleApp());
     },
