@@ -1,7 +1,8 @@
 import 'dart:io';
 
+// `Options` comes from the apix barrel (re-exported since apix 2.3.0), so no
+// direct `package:dio` import is needed here.
 import 'package:apix/apix.dart';
-import 'package:dio/dio.dart';
 
 import '../models/post.dart';
 import '../models/user.dart';
