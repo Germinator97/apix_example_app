@@ -47,6 +47,9 @@ app.*.map.json
 # Generated
 .metadata
 
-pubspec.lock
+# NOTE: `pubspec.lock` is deliberately NOT ignored. This is an app, not a
+# library: the lock pins third-party versions so a red CI means a real change
+# rather than registry drift. It does not hide apix drift — apix is a `path`
+# dependency, so it always resolves to the working copy.
 ios/Podfile.lock
 android/app/build/
