@@ -60,6 +60,19 @@ void main() {
       },
     );
 
+    test('a broken log sink does not break the request', () async {
+      final result = await client.run(V4Probe.brokenObserverIsHarmless);
+
+      expect(result.headline, contains('HTTP 200'));
+      expect(
+        result.headline,
+        isNot(contains('REGRESSION')),
+        reason:
+            'the probe renders REGRESSION if the sink breaks the request, '
+            'which is what makes this assertion mean something',
+      );
+    });
+
     test('networkOnly writes nothing', () async {
       final result = await client.run(V4Probe.networkOnlyStoresNothing);
 

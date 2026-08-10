@@ -382,6 +382,12 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
                         const RunV4Probe(V4Probe.networkOnlyStoresNothing),
                       ),
                     ),
+                    _btn(
+                      'Broken log sink (v4.1)',
+                      () => context.read<V4Bloc>().add(
+                        const RunV4Probe(V4Probe.brokenObserverIsHarmless),
+                      ),
+                    ),
                   ]),
                   const SizedBox(height: 8),
                   _buildSection(context, '📤 v3.0 — What reaches the tracker', [
@@ -559,6 +565,7 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
     V4Probe.rateLimited => 'rate limit',
     V4Probe.deduplicationWithoutCache => 'dedup without cache',
     V4Probe.networkOnlyStoresNothing => 'networkOnly',
+    V4Probe.brokenObserverIsHarmless => 'broken observer',
   };
 
   void _onRetryPolicyState(BuildContext context, RetryPolicyState state) {

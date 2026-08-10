@@ -20,6 +20,10 @@ enum V4Probe {
 
   /// A `networkOnly` request: served from the network, and stored nowhere.
   networkOnlyStoresNothing,
+
+  /// (4.1.0) A log sink that throws on every entry — the request must still
+  /// return its 200.
+  brokenObserverIsHarmless,
 }
 
 /// What a probe observed. Deliberately records what actually happened rather
@@ -56,6 +60,7 @@ class V4DemoClient {
       V4Probe.rateLimited => _rateLimited(),
       V4Probe.deduplicationWithoutCache => _deduplication(),
       V4Probe.networkOnlyStoresNothing => _networkOnly(),
+      V4Probe.brokenObserverIsHarmless => _brokenObserver(),
     };
   }
 
@@ -196,6 +201,46 @@ class V4DemoClient {
           'Until 4.0.0 only the *reading* half was enforced, so a profile '
           'went through a store nobody ever read from.',
     );
+  }
+
+  /// An observation callback that fails must not decide whether the request
+  /// succeeded.
+  Future<V4ProbeResult> _brokenObserver() async {
+    var attempts = 0;
+    final client = ApiClientFactory.create(
+      baseUrl: 'https://demo.apix',
+      loggerConfig: LoggerConfig(
+        level: LogLevel.info,
+        logHandler: (_) {
+          attempts++;
+          throw StateError('log sink is down');
+        },
+      ),
+      httpClientAdapter: _ScriptedAdapter(
+        statusCode: 200,
+        body: {'value': 'ok'},
+      ),
+    );
+
+    try {
+      final response = await client.get<dynamic>('/profile');
+      return V4ProbeResult(
+        probe: V4Probe.brokenObserverIsHarmless,
+        headline:
+            'HTTP ${response.statusCode} despite $attempts failed '
+            'log write${attempts == 1 ? "" : "s"}',
+        detail:
+            'Before 4.1.0 this returned an ApiException: a log sink, an '
+            'analytics backend or a span starter having a bad minute failed '
+            'the business request it was only supposed to observe.',
+      );
+    } on ApiException catch (e) {
+      return V4ProbeResult(
+        probe: V4Probe.brokenObserverIsHarmless,
+        headline: 'REGRESSION — the log sink broke the request',
+        detail: '${e.runtimeType}: ${e.message}',
+      );
+    }
   }
 }
 
