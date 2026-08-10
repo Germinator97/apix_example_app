@@ -12,12 +12,13 @@ import 'package:dio/io.dart';
 class BusinessException extends ApiException {
   const BusinessException({
     required super.message,
-    required this.code,
+    required String super.code,
     super.statusCode,
   });
 
-  final String code;
-
+  // `code` used to be declared here. As of apix 4.0.0 it lives on
+  // ApiException itself, so redeclaring it would shadow the inherited field —
+  // and would not even compile if the types differed.
   @override
   String toString() => 'BusinessException($code): $message';
 }
