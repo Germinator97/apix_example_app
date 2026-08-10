@@ -24,6 +24,7 @@ import '../../presentation/blocs/envelope/envelope_bloc.dart';
 import '../../presentation/blocs/epic11/epic11_bloc.dart';
 import '../../presentation/blocs/posts/posts_bloc.dart';
 import '../../presentation/blocs/retry_policy/retry_policy_bloc.dart';
+import '../../presentation/blocs/v4/v4_bloc.dart';
 import '../../presentation/blocs/sentry/sentry_bloc.dart';
 import '../../presentation/blocs/tracking/tracking_bloc.dart';
 import '../../presentation/blocs/users/users_bloc.dart';
@@ -32,6 +33,7 @@ import '../services/envelope_demo_client.dart';
 import '../services/epic11_demo_client.dart';
 import '../services/error_tracking_demo_client.dart';
 import '../services/retry_policy_demo_client.dart';
+import '../services/v4_demo_client.dart';
 
 final sl = GetIt.instance;
 
@@ -61,6 +63,7 @@ Future<void> initDependencies() async {
   sl.registerLazySingleton<Epic11DemoClient>(Epic11DemoClient.new);
 
   sl.registerLazySingleton<RetryPolicyDemoClient>(RetryPolicyDemoClient.new);
+  sl.registerLazySingleton<V4DemoClient>(V4DemoClient.new);
 
   sl.registerLazySingleton<ErrorTrackingDemoClient>(
     ErrorTrackingDemoClient.new,
@@ -125,6 +128,7 @@ Future<void> initDependencies() async {
   sl.registerFactory(() => EnvelopeBloc(client: sl()));
   sl.registerFactory(() => Epic11Bloc(client: sl()));
   sl.registerFactory(() => RetryPolicyBloc(client: sl()));
+  sl.registerFactory(() => V4Bloc(client: sl()));
   sl.registerFactory(() => TrackingBloc(client: sl()));
   sl.registerFactory(() => SentryBloc(testSentry: sl()));
 }

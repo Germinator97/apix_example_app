@@ -10,6 +10,7 @@ import '../../core/di/injection_container.dart';
 import '../../core/services/api_client_provider.dart';
 import '../../core/services/error_tracking_demo_client.dart';
 import '../../core/services/retry_policy_demo_client.dart';
+import '../../core/services/v4_demo_client.dart';
 import '../../core/theme/app_theme.dart';
 import '../blocs/envelope/envelope_bloc.dart';
 import '../blocs/envelope/envelope_event.dart';
@@ -21,6 +22,9 @@ import '../blocs/posts/posts_bloc.dart';
 import '../blocs/posts/posts_event.dart';
 import '../blocs/posts/posts_state.dart';
 import '../blocs/retry_policy/retry_policy_bloc.dart';
+import '../blocs/v4/v4_state.dart';
+import '../blocs/v4/v4_event.dart';
+import '../blocs/v4/v4_bloc.dart';
 import '../blocs/retry_policy/retry_policy_event.dart';
 import '../blocs/retry_policy/retry_policy_state.dart';
 import '../blocs/sentry/sentry_bloc.dart';
@@ -47,6 +51,7 @@ class HomeScreen extends StatelessWidget {
         BlocProvider(create: (_) => sl<EnvelopeBloc>()),
         BlocProvider(create: (_) => sl<Epic11Bloc>()),
         BlocProvider(create: (_) => sl<RetryPolicyBloc>()),
+        BlocProvider(create: (_) => sl<V4Bloc>()),
         BlocProvider(create: (_) => sl<TrackingBloc>()),
         BlocProvider(create: (_) => sl<SentryBloc>()),
       ],
@@ -139,6 +144,7 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
           BlocListener<RetryPolicyBloc, RetryPolicyState>(
             listener: _onRetryPolicyState,
           ),
+          BlocListener<V4Bloc, V4State>(listener: _onV4State),
           BlocListener<TrackingBloc, TrackingState>(listener: _onTrackingState),
           BlocListener<SentryBloc, SentryState>(listener: _onSentryState),
         ],
@@ -351,6 +357,33 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
                   // hand-made exceptions — these two travel the real
                   // interceptor chain, so they show what apix actually hands
                   // to the tracker.
+                  _buildSection(context, '✨ v4.0 — What the report asked for', [
+                    _btn(
+                      'Error code (409)',
+                      () => context.read<V4Bloc>().add(
+                        const RunV4Probe(V4Probe.applicationErrorCode),
+                      ),
+                    ),
+                    _btn(
+                      'Rate limit (429)',
+                      () => context.read<V4Bloc>().add(
+                        const RunV4Probe(V4Probe.rateLimited),
+                      ),
+                    ),
+                    _btn(
+                      'Dedup, no cache',
+                      () => context.read<V4Bloc>().add(
+                        const RunV4Probe(V4Probe.deduplicationWithoutCache),
+                      ),
+                    ),
+                    _btn(
+                      'networkOnly writes nothing',
+                      () => context.read<V4Bloc>().add(
+                        const RunV4Probe(V4Probe.networkOnlyStoresNothing),
+                      ),
+                    ),
+                  ]),
+                  const SizedBox(height: 8),
                   _buildSection(context, '📤 v3.0 — What reaches the tracker', [
                     _btn(
                       '500 → reported',
@@ -507,6 +540,26 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
       _updateStatus('⚠️ ${state.scenario}: ${state.reason}');
     }
   }
+
+  void _onV4State(BuildContext context, V4State state) {
+    if (state is V4Running) {
+      _updateStatus('⏳ Running ${_v4Label(state.probe)}...');
+    } else if (state is V4Measured) {
+      _updateStatus(
+        '✨ ${_v4Label(state.result.probe)} — '
+        '${state.result.headline}',
+      );
+    } else if (state is V4Failed) {
+      _updateStatus('❌ ${_v4Label(state.probe)} — ${state.reason}');
+    }
+  }
+
+  String _v4Label(V4Probe probe) => switch (probe) {
+    V4Probe.applicationErrorCode => 'application error code',
+    V4Probe.rateLimited => 'rate limit',
+    V4Probe.deduplicationWithoutCache => 'dedup without cache',
+    V4Probe.networkOnlyStoresNothing => 'networkOnly',
+  };
 
   void _onRetryPolicyState(BuildContext context, RetryPolicyState state) {
     if (state is RetryPolicyRunning) {
