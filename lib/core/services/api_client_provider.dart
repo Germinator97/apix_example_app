@@ -39,8 +39,23 @@ class ApiClientProvider {
     // disk cache does not, so leaving it unbounded would keep every response
     // this demo ever made.
     //
-    // ⚠️ Clear text on disk. JSONPlaceholder posts are public sample data —
-    // this would be the wrong place for anything carrying identity or money.
+    // ⚠️ Clear text on disk. JSONPlaceholder posts are public sample data, so
+    // that is acceptable *here* and nowhere near identity or money.
+    //
+    // v4.0 offers EncryptedCacheStorage for exactly that case — it wraps this
+    // storage and seals body and headers with a cipher you supply:
+    //
+    //   storage: EncryptedCacheStorage(
+    //     delegate: FileCacheStorage(dir, maxEntries: 100),
+    //     encrypt: myCipher.seal,
+    //     decrypt: myCipher.open,
+    //   ),
+    //
+    // Left unwrapped on purpose: wiring a real cipher here would add a crypto
+    // dependency this demo does not need, and a toy one in an example app is
+    // precisely the thing that gets copied into production. Note that cache
+    // *keys* stay readable either way, so keep identifiers out of URLs you
+    // cache.
     storage: FileCacheStorage(
       Directory('${cacheDirectory.path}/apix_cache'),
       maxEntries: 100,
@@ -109,7 +124,27 @@ class ApiClientProvider {
         // per request with `forceRetry()` and make it safe with an
         // `Idempotency-Key` — see `RetryPolicyDemoClient`, which measures
         // both behaviours.
+        //
+        // v4.0: `jitter` is left at its default (0.2, i.e. ±20 %). It is ON
+        // deliberately — a strictly deterministic backoff makes every client
+        // that failed in the same outage second retry at the same instants,
+        // meeting the recovering server with a synchronised spike. Pass 0.0
+        // only where a test needs an exact delay.
       ),
+      // v4.0: without this, a retry storm is invisible — only the final
+      // failure ever surfaces, never the attempts that led to it.
+      onRetry: (attempt) {
+        if (kDebugMode) {
+          debugPrint(
+            '[retry] #${attempt.attempt} in ${attempt.delay.inMilliseconds}ms '
+            '(status ${attempt.statusCode})',
+          );
+        }
+      },
+      // v4.0: one performance span per request, as a child of the current
+      // Sentry transaction. apix already measured durations; this is what
+      // makes them aggregatable rather than visible only after an incident.
+      tracingConfig: const TracingConfig(),
       loggerConfig: LoggerConfig(
         level: kDebugMode ? LogLevel.info : LogLevel.error,
         redactedHeaders: const ['Authorization', 'Cookie'],
