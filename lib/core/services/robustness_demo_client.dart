@@ -38,9 +38,9 @@ class BusinessException extends ApiException {
 /// 4. `Retry-After` honoured — `/throttled` returns `503 + Retry-After: 1`
 ///    on first call, then `200` on the retry. The total wall-clock time
 ///    proves the wait was honoured.
-class Epic11DemoClient {
-  Epic11DemoClient() {
-    final adapter = _Epic11MockAdapter();
+class RobustnessDemoClient {
+  RobustnessDemoClient() {
+    final adapter = _RobustnessMockAdapter();
     final config = ApiClientConfig(
       baseUrl: 'https://epic11.demo.local',
       strictContentType: true,
@@ -74,7 +74,7 @@ class Epic11DemoClient {
 
   late final ApiClient _client;
   late final ApiClient _faultyClient;
-  late final _Epic11MockAdapter _adapter;
+  late final _RobustnessMockAdapter _adapter;
 
   ApiClient get client => _client;
 
@@ -167,7 +167,7 @@ ApiException? _validate200Envelope(Response<dynamic> response) {
 }
 
 /// In-memory mock adapter for the four Epic 11 demo routes.
-class _Epic11MockAdapter implements HttpClientAdapter {
+class _RobustnessMockAdapter implements HttpClientAdapter {
   final HttpClientAdapter _fallback = IOHttpClientAdapter();
 
   /// Number of times `/throttled` was hit since the last reset. Used to

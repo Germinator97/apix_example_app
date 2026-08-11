@@ -1,14 +1,14 @@
 import 'package:apix/apix.dart';
-import 'package:apix_example_app/core/services/epic11_demo_client.dart';
+import 'package:apix_example_app/core/services/robustness_demo_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// End-to-end coverage of the four robustness features delivered with
 /// apix v2.1.0 plus the [TokenProviderException] path. Each test asserts
 /// that the typed exception bubbles up exactly as documented.
 void main() {
-  late Epic11DemoClient client;
+  late RobustnessDemoClient client;
 
-  setUp(() => client = Epic11DemoClient());
+  setUp(() => client = RobustnessDemoClient());
 
   test(
     'triggerParsingFailure → ParsingException with non-null cause',

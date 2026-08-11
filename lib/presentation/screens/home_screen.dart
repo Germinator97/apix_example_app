@@ -8,33 +8,18 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../core/di/injection_container.dart';
 import '../../core/services/api_client_provider.dart';
-import '../../core/services/error_tracking_demo_client.dart';
-import '../../core/services/retry_policy_demo_client.dart';
-import '../../core/services/v4_demo_client.dart';
-import '../../core/services/v5_demo_client.dart';
 import '../../core/theme/app_theme.dart';
 import '../blocs/envelope/envelope_bloc.dart';
 import '../blocs/envelope/envelope_event.dart';
 import '../blocs/envelope/envelope_state.dart';
-import '../blocs/epic11/epic11_bloc.dart';
-import '../blocs/epic11/epic11_event.dart';
-import '../blocs/epic11/epic11_state.dart';
 import '../blocs/posts/posts_bloc.dart';
 import '../blocs/posts/posts_event.dart';
 import '../blocs/posts/posts_state.dart';
-import '../blocs/retry_policy/retry_policy_bloc.dart';
-import '../blocs/v4/v4_state.dart';
-import '../blocs/v5/v5_state.dart';
-import '../blocs/v4/v4_event.dart';
-import '../blocs/v5/v5_event.dart';
-import '../blocs/v4/v4_bloc.dart';
-import '../blocs/v5/v5_bloc.dart';
-import '../blocs/retry_policy/retry_policy_event.dart';
-import '../blocs/retry_policy/retry_policy_state.dart';
+import '../../core/probes/probe_registry.dart';
+import '../blocs/probes/probe_bloc.dart';
 import '../blocs/sentry/sentry_bloc.dart';
 import '../blocs/sentry/sentry_event.dart';
 import '../blocs/sentry/sentry_state.dart';
-import '../blocs/tracking/tracking_bloc.dart';
 import '../blocs/users/users_bloc.dart';
 import '../blocs/users/users_event.dart';
 import '../blocs/users/users_state.dart';
@@ -53,11 +38,7 @@ class HomeScreen extends StatelessWidget {
         BlocProvider(create: (_) => sl<UsersBloc>()),
         BlocProvider(create: (_) => sl<PostsBloc>()),
         BlocProvider(create: (_) => sl<EnvelopeBloc>()),
-        BlocProvider(create: (_) => sl<Epic11Bloc>()),
-        BlocProvider(create: (_) => sl<RetryPolicyBloc>()),
-        BlocProvider(create: (_) => sl<V4Bloc>()),
-        BlocProvider(create: (_) => sl<V5Bloc>()),
-        BlocProvider(create: (_) => sl<TrackingBloc>()),
+        BlocProvider(create: (_) => sl<ProbeBloc>()),
         BlocProvider(create: (_) => sl<SentryBloc>()),
       ],
       child: const _HomeScreenContent(),
@@ -145,13 +126,7 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
           BlocListener<UsersBloc, UsersState>(listener: _onUsersState),
           BlocListener<PostsBloc, PostsState>(listener: _onPostsState),
           BlocListener<EnvelopeBloc, EnvelopeState>(listener: _onEnvelopeState),
-          BlocListener<Epic11Bloc, Epic11State>(listener: _onEpic11State),
-          BlocListener<RetryPolicyBloc, RetryPolicyState>(
-            listener: _onRetryPolicyState,
-          ),
-          BlocListener<V4Bloc, V4State>(listener: _onV4State),
-          BlocListener<V5Bloc, V5State>(listener: _onV5State),
-          BlocListener<TrackingBloc, TrackingState>(listener: _onTrackingState),
+          BlocListener<ProbeBloc, ProbeState>(listener: _onProbeState),
           BlocListener<SentryBloc, SentryState>(listener: _onSentryState),
         ],
         child: Column(
@@ -303,166 +278,7 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
                     ),
                   ]),
                   const SizedBox(height: 8),
-                  _buildSection(context, '🛡️ v2.1 — Robustness', [
-                    _btn(
-                      'ParsingException',
-                      () => context.read<Epic11Bloc>().add(
-                        const TriggerParsingException(),
-                      ),
-                    ),
-                    _btn(
-                      'UnexpectedContentType',
-                      () => context.read<Epic11Bloc>().add(
-                        const TriggerCaptivePortal(),
-                      ),
-                    ),
-                    _btn(
-                      'responseValidator (200 → BusinessException)',
-                      () => context.read<Epic11Bloc>().add(
-                        const TriggerBusinessError(),
-                      ),
-                    ),
-                    _btn(
-                      'Retry-After honored',
-                      () => context.read<Epic11Bloc>().add(
-                        const TriggerRetryAfter(),
-                      ),
-                    ),
-                    _btn(
-                      'TokenProviderException',
-                      () => context.read<Epic11Bloc>().add(
-                        const TriggerTokenProviderFailure(),
-                      ),
-                    ),
-                  ]),
-                  const SizedBox(height: 8),
-                  // Every route below replies 503, so only the HTTP method
-                  // (and an explicit opt-in) decides whether apix replays it.
-                  _buildSection(context, '🔁 v2.3 — Method-aware retry', [
-                    _btn(
-                      'GET (idempotent)',
-                      () => context.read<RetryPolicyBloc>().add(
-                        const RunRetryProbe(RetryProbe.idempotentGet),
-                      ),
-                    ),
-                    _btn(
-                      'POST (not replayed)',
-                      () => context.read<RetryPolicyBloc>().add(
-                        const RunRetryProbe(RetryProbe.nonIdempotentPost),
-                      ),
-                    ),
-                    _btn(
-                      'POST + forceRetry()',
-                      () => context.read<RetryPolicyBloc>().add(
-                        const RunRetryProbe(RetryProbe.forcedPost),
-                      ),
-                    ),
-                  ]),
-                  const SizedBox(height: 8),
-                  // Unlike the Sentry section below — which throws
-                  // hand-made exceptions — these two travel the real
-                  // interceptor chain, so they show what apix actually hands
-                  // to the tracker.
-                  _buildSection(context, '✨ v4.0 — What the report asked for', [
-                    _btn(
-                      'Error code (409)',
-                      () => context.read<V4Bloc>().add(
-                        const RunV4Probe(V4Probe.applicationErrorCode),
-                      ),
-                    ),
-                    _btn(
-                      'Rate limit (429)',
-                      () => context.read<V4Bloc>().add(
-                        const RunV4Probe(V4Probe.rateLimited),
-                      ),
-                    ),
-                    _btn(
-                      'Dedup, no cache',
-                      () => context.read<V4Bloc>().add(
-                        const RunV4Probe(V4Probe.deduplicationWithoutCache),
-                      ),
-                    ),
-                    _btn(
-                      'networkOnly writes nothing',
-                      () => context.read<V4Bloc>().add(
-                        const RunV4Probe(V4Probe.networkOnlyStoresNothing),
-                      ),
-                    ),
-                    _btn(
-                      'Broken log sink (v4.1)',
-                      () => context.read<V4Bloc>().add(
-                        const RunV4Probe(V4Probe.brokenObserverIsHarmless),
-                      ),
-                    ),
-                    _btn(
-                      'Status is not a code (v5.0.0)',
-                      () => context.read<V4Bloc>().add(
-                        const RunV4Probe(V4Probe.statusIsNotABusinessCode),
-                      ),
-                    ),
-                  ]),
-                  const SizedBox(height: 8),
-                  // The 4.x probes answered an integration report. These six
-                  // answer an audit, and share a different shape: each defect
-                  // produced a WRONG ANSWER rather than an error — the cache
-                  // returned the previous account's body, the upload arrived
-                  // empty. Nothing raised, so nothing was ever reported.
-                  _buildSection(context, '🔎 v5.0 — What the audit found', [
-                    _btn(
-                      'Cache is scoped to the caller',
-                      () => context.read<V5Bloc>().add(
-                        const RunV5Probe(V5Probe.cacheIsScopedToCaller),
-                      ),
-                    ),
-                    _btn(
-                      'Inline ?page= does not collide',
-                      () => context.read<V5Bloc>().add(
-                        const RunV5Probe(V5Probe.inlineQueryDoesNotCollide),
-                      ),
-                    ),
-                    _btn(
-                      'Nested multipart keeps everything',
-                      () => context.read<V5Bloc>().add(
-                        const RunV5Probe(
-                          V5Probe.nestedMultipartKeepsEverything,
-                        ),
-                      ),
-                    ),
-                    _btn(
-                      'Upload survives a token refresh',
-                      () => context.read<V5Bloc>().add(
-                        const RunV5Probe(V5Probe.uploadSurvivesTokenRefresh),
-                      ),
-                    ),
-                    _btn(
-                      '200 + success:false is a failure',
-                      () => context.read<V5Bloc>().add(
-                        const RunV5Probe(V5Probe.businessFailureIsNotASuccess),
-                      ),
-                    ),
-                    _btn(
-                      'A bare [] is an empty list',
-                      () => context.read<V5Bloc>().add(
-                        const RunV5Probe(V5Probe.bareArrayIsAnEmptyList),
-                      ),
-                    ),
-                  ]),
-                  const SizedBox(height: 8),
-                  _buildSection(context, '📤 v3.0 — What reaches the tracker', [
-                    _btn(
-                      '500 → reported',
-                      () => context.read<TrackingBloc>().add(
-                        const RunTrackingProbe(TrackingProbe.serverError),
-                      ),
-                    ),
-                    _btn(
-                      'Connection lost → filtered',
-                      () => context.read<TrackingBloc>().add(
-                        const RunTrackingProbe(TrackingProbe.connectionLost),
-                      ),
-                    ),
-                  ]),
-                  const SizedBox(height: 16),
+                  ..._probeSections(context),
                   _buildSection(context, '🐛 Sentry Integration', [
                     _sentryBtn(
                       context,
@@ -590,104 +406,6 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
     }
   }
 
-  void _onEpic11State(BuildContext context, Epic11State state) {
-    if (state is Epic11Running) {
-      _updateStatus('⏳ ${state.scenario}...');
-    } else if (state is Epic11Captured) {
-      _updateStatus('✅ Caught ${state.exceptionType} → ${state.message}');
-    } else if (state is Epic11RetryAfterSucceeded) {
-      _updateStatus(
-        '⏱ Retry-After honored — total ${state.elapsedMs}ms '
-        '(expected ≥1000ms)',
-      );
-    } else if (state is Epic11Unexpected) {
-      _updateStatus('⚠️ ${state.scenario}: ${state.reason}');
-    }
-  }
-
-  void _onV4State(BuildContext context, V4State state) {
-    if (state is V4Running) {
-      _updateStatus('⏳ Running ${_v4Label(state.probe)}...');
-    } else if (state is V4Measured) {
-      _updateStatus(
-        '✨ ${_v4Label(state.result.probe)} — '
-        '${state.result.headline}',
-      );
-    } else if (state is V4Failed) {
-      _updateStatus('❌ ${_v4Label(state.probe)} — ${state.reason}');
-    }
-  }
-
-  String _v4Label(V4Probe probe) => switch (probe) {
-    V4Probe.applicationErrorCode => 'application error code',
-    V4Probe.rateLimited => 'rate limit',
-    V4Probe.deduplicationWithoutCache => 'dedup without cache',
-    V4Probe.networkOnlyStoresNothing => 'networkOnly',
-    V4Probe.brokenObserverIsHarmless => 'broken observer',
-    V4Probe.statusIsNotABusinessCode => 'status is not a code',
-  };
-
-  void _onV5State(BuildContext context, V5State state) {
-    if (state is V5Running) {
-      _updateStatus('⏳ Running ${_v5Label(state.probe)}...');
-    } else if (state is V5Measured) {
-      _updateStatus(
-        '🔎 ${_v5Label(state.result.probe)} — '
-        '${state.result.headline}',
-      );
-    } else if (state is V5Failed) {
-      _updateStatus('❌ ${_v5Label(state.probe)} — ${state.reason}');
-    }
-  }
-
-  String _v5Label(V5Probe probe) => switch (probe) {
-    V5Probe.cacheIsScopedToCaller => 'cache scoping',
-    V5Probe.inlineQueryDoesNotCollide => 'inline query',
-    V5Probe.nestedMultipartKeepsEverything => 'nested multipart',
-    V5Probe.uploadSurvivesTokenRefresh => 'upload replay',
-    V5Probe.businessFailureIsNotASuccess => 'business failure',
-    V5Probe.bareArrayIsAnEmptyList => 'bare array',
-  };
-
-  void _onRetryPolicyState(BuildContext context, RetryPolicyState state) {
-    if (state is RetryPolicyRunning) {
-      _updateStatus('⏳ Probing retry policy (${_probeLabel(state.probe)})...');
-    } else if (state is RetryPolicyMeasured) {
-      final r = state.result;
-      _updateStatus(
-        '${r.wasRetried ? '🔁' : '🛑'} ${_probeLabel(r.probe)} — server hit '
-        '${r.attempts}x '
-        '(${r.wasRetried ? 'replayed' : 'not replayed'})',
-      );
-    } else if (state is RetryPolicyUnexpected) {
-      _updateStatus('⚠️ ${_probeLabel(state.probe)}: ${state.reason}');
-    }
-  }
-
-  String _probeLabel(RetryProbe probe) => switch (probe) {
-    RetryProbe.idempotentGet => 'GET',
-    RetryProbe.nonIdempotentPost => 'POST',
-    RetryProbe.forcedPost => 'POST + forceRetry()',
-  };
-
-  void _onTrackingState(BuildContext context, TrackingState state) {
-    if (state is TrackingRunning) {
-      _updateStatus('⏳ Probing what the tracker receives...');
-    } else if (state is TrackingMeasured) {
-      final r = state.result;
-      // Says both what the caller caught and what the tracker got: the 3.0.0
-      // change is that these are now the same typed exception.
-      _updateStatus(
-        r.reachesDashboard
-            ? '📤 Caught ${r.caught} → tracker got ${r.reported} → in Sentry'
-            : '🔇 Caught ${r.caught} → tracker got ${r.reported} → '
-                  'filtered as noise',
-      );
-    } else if (state is TrackingUnexpected) {
-      _updateStatus('⚠️ ${state.reason}');
-    }
-  }
-
   void _onSentryState(BuildContext context, SentryState state) {
     if (state is SentryTesting) {
       _updateStatus('🔍 Testing Sentry: ${state.testName}...');
@@ -701,6 +419,42 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
   }
 
   // --- UI helpers --------------------------------------------------------
+
+  /// One section per theme, straight from the registry.
+  ///
+  /// The screen no longer knows what any probe *is*: it knows there are themes
+  /// and that each holds buttons. Sections used to be hand-written per release
+  /// — v2.1, v2.3, v3.0, v4.0, v5.0 — so every version added a heading here, a
+  /// bloc, a listener and a label mapping. Adding a probe now touches one list
+  /// and nothing else.
+  List<Widget> _probeSections(BuildContext context) {
+    final registry = sl<ProbeRegistry>();
+    return [
+      for (final theme in registry.themes) ...[
+        _buildSection(context, theme.heading, [
+          for (final probe in registry.byTheme(theme))
+            _btn(
+              probe.label,
+              () => context.read<ProbeBloc>().add(RunProbe(probe)),
+            ),
+        ]),
+        const SizedBox(height: 8),
+      ],
+    ];
+  }
+
+  void _onProbeState(BuildContext context, ProbeState state) {
+    if (state is ProbeRunning) {
+      _updateStatus('⏳ ${state.probe.label}...');
+    } else if (state is ProbeMeasured) {
+      _updateStatus(
+        '${state.probe.theme.icon} ${state.probe.label} — '
+        '${state.outcome.headline}',
+      );
+    } else if (state is ProbeFailed) {
+      _updateStatus('❌ ${state.probe.label} — ${state.reason}');
+    }
+  }
 
   Widget _buildSection(
     BuildContext context,
