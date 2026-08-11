@@ -71,25 +71,33 @@ why the gap only shows up in production.
 
 ### 1. Client setup (`lib/core/services/api_client_provider.dart`)
 
-One declarative `ApiClientFactory.create` call wires auth, retry, logging,
-error tracking and metrics. The cache interceptor is passed in as a custom
-interceptor so the app can hold the *same* instance it uses for invalidation:
+One declarative `ApiClientFactory.create` call wires auth, retry, caching,
+logging, error tracking and metrics:
 
 ```dart
 final c = ApiClientFactory.create(
   baseUrl: baseUrl,
   authConfig: _authConfig,
   retryConfig: const RetryConfig(...),
+  cacheConfig: _cacheConfig,
   loggerConfig: LoggerConfig(...),
   errorTrackingConfig: ErrorTrackingConfig(...),
   metricsConfig: MetricsConfig(...),
   strictContentType: true,
-  interceptors: [cacheInterceptor],
 );
 
-// Required for `invalidateUrl(<relative>)` to resolve against baseUrl.
-cacheInterceptor.setDio(c.dio);
+// The same instance the client is using — no reference to keep by hand.
+CacheInterceptor get cacheInterceptor => client.cacheInterceptor!;
 ```
+
+The cache goes through `cacheConfig`, not `interceptors:`. Both work, but the
+factory places it **before** the observers and calls `setDio` for you — and
+that call is what makes `invalidateUrl('<relative path>')` resolve against the
+base URL. Passing it through `interceptors:` puts it after the observers
+instead, where its re-entrant inner request is logged a second time.
+
+This app did it the other way for a while, purely to keep a reference to the
+instance. `ApiClient.cacheInterceptor` removes the reason.
 
 ### 2. Secure token storage (`lib/data/datasources/local_data_source.dart`)
 
@@ -132,11 +140,17 @@ await _client.post<dynamic>(
 no-response network guard and `maxAttempts` still apply, and `disableRetry()`
 still wins over it.
 
-The **🔁 v2.3 — Method-aware retry** section of the home screen runs three
-probes against an always-`503` route and reports how many times the server was
-actually hit: `GET` → replayed, `POST` → hit once, `POST` + `forceRetry()` →
-replayed. `test/retry/retry_policy_test.dart` asserts both the policy and the
-observed behaviour, so widening `retryableMethods` fails the suite.
+The **🔁 Retry** section of the home screen runs probes against an
+always-`503` route and reports how many times the server was actually hit:
+`GET` → replayed, `POST` → hit once, `POST` + `forceRetry()` → replayed.
+`test/retry/retry_policy_test.dart` asserts both the policy and the observed
+behaviour, so widening `retryableMethods` fails the suite.
+
+> Sections are named after **themes**, not releases. Grouping by version made
+> the app grow a section per release and asked the reader the wrong question:
+> nobody opens a demo wondering what 2.3 shipped, they wonder how retry
+> behaves. This paragraph said `🔁 v2.3 — Method-aware retry` for a while after
+> the screen had stopped saying it.
 
 ### 4. Caching (`lib/data/datasources/remote_data_source.dart`)
 
@@ -159,9 +173,14 @@ cache"* or *"from earlier — refreshing"*, and the status bar says so too.
 The wording differs on purpose — the second one changes what the user should
 do with the numbers on screen.
 
-`clearCache`, `invalidateUrl`, `invalidatePath`, `invalidateByPrefix` and
-`getCacheKeys` are all exercised from the *Cache Actions* section of the home
-screen.
+`clearCache`, `invalidateUrl`, `invalidatePath`, `invalidateByPrefix`,
+`getCacheKeys` and `evictExpired` are all exercised from the *Cache Actions*
+section of the home screen.
+
+> `getCacheKeys()` only **reads**. It used to purge every expired entry it
+> walked over, so inspecting the cache destroyed the offline fallback — an
+> expired entry is exactly what `networkFirst` serves when the network is gone.
+> `evictExpired()` is the sweep, under a name that admits it.
 
 The app's cache is **persistent**: it uses `FileCacheStorage`, wired in
 `ApiClientProvider` from a directory the app resolves with `path_provider` and
@@ -208,7 +227,7 @@ handling.
 `getAndDecodeData`, `getListAndDecodeData`, `getListAndParseData`,
 `postAndDecodeData`.
 
-### 7. Robustness — apix 2.1 (`lib/core/services/epic11_demo_client.dart`)
+### 7. Robustness (`lib/core/services/robustness_demo_client.dart`)
 
 Four failure modes, each surfaced as a typed exception:
 
@@ -273,8 +292,9 @@ flutter test
 
 This example uses [JSONPlaceholder](https://jsonplaceholder.typicode.com/), a
 free fake REST API for testing. The demo clients in `lib/core/services/`
-(`envelope`, `epic11`, `retry_policy`) run against in-memory mock adapters
-instead, so their scenarios are deterministic and offline.
+(`envelope`, `robustness`, `retry_policy`, `error_tracking`) and every probe in
+`lib/core/probes/` run against in-memory scripted adapters instead, so their
+scenarios are deterministic and offline.
 
 ## Structure
 
@@ -285,11 +305,21 @@ apix_example_app/
 │   ├── core/
 │   │   ├── di/injection_container.dart      # GetIt wiring
 │   │   ├── error/                           # Failures + wrapExceptions
+│   │   ├── probes/
+│   │   │   ├── demo_probe.dart              # ProbeTheme + DemoProbe
+│   │   │   ├── probe_registry.dart          # every probe, one list
+│   │   │   ├── scripted_adapter.dart        # one fake transport for all
+│   │   │   ├── cache_probes.dart            # 💾
+│   │   │   ├── auth_upload_probes.dart      # 🔐
+│   │   │   ├── error_probes.dart            # ⚠️
+│   │   │   ├── retry_probes.dart            # 🔁
+│   │   │   └── observability_probes.dart    # 📤
 │   │   ├── services/
 │   │   │   ├── api_client_provider.dart     # The real, fully-wired client
 │   │   │   ├── envelope_demo_client.dart    # {"payload": ...} demo
-│   │   │   ├── epic11_demo_client.dart      # v2.1 robustness demo
-│   │   │   └── retry_policy_demo_client.dart# v2.3 method-aware retry demo
+│   │   │   ├── error_tracking_demo_client.dart
+│   │   │   ├── robustness_demo_client.dart
+│   │   │   └── retry_policy_demo_client.dart
 │   │   └── theme/app_theme.dart
 │   ├── data/
 │   │   ├── datasources/                     # local (secure storage) + remote
@@ -298,8 +328,12 @@ apix_example_app/
 │   ├── domain/                              # entities, repositories, usecases
 │   └── presentation/
 │       ├── blocs/                           # users, posts, envelope,
-│       │                                    # epic11, retry_policy, sentry
+│       │                                    # probes, sentry
 │       ├── screens/home_screen.dart
 │       └── widgets/
 └── test/
 ```
+
+Adding a demonstration is **one entry in `probe_registry.dart`** — no new bloc,
+no new state class, no new section. Before that it took six edits, five of them
+mechanical, and the app grew a bloc per release.
