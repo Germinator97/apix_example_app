@@ -64,12 +64,15 @@ class ApiClientProvider {
     defaultTtl: const Duration(minutes: 5),
   );
 
-  /// Single [CacheInterceptor] instance — exposed for invalidation and
-  /// also installed in the Dio chain so both share the same storage and
-  /// the same `setDio` link (required for relative-URL invalidation).
-  late final CacheInterceptor cacheInterceptor = CacheInterceptor(
-    config: _cacheConfig,
-  );
+  /// The cache interceptor the client is actually using, for the invalidation
+  /// buttons.
+  ///
+  /// Looked up rather than built here. This used to construct its own instance
+  /// and pass it through `interceptors:` purely to keep a reference — which put
+  /// a *re-entrant* interceptor after the observers, so its inner request was
+  /// logged a second time. `cacheConfig` places it before them, and
+  /// `ApiClient.cacheInterceptor` hands back the same instance.
+  CacheInterceptor get cacheInterceptor => client.cacheInterceptor!;
 
   /// Latest request metrics, refreshed by [MetricsInterceptor] on every call.
   RequestMetrics? lastMetrics;
@@ -176,13 +179,11 @@ class ApiClientProvider {
       // response Content-Type starts with `application/json`. JSONPlaceholder
       // returns `application/json; charset=utf-8`, which passes this check.
       strictContentType: true,
-      // Install the shared cache interceptor as a custom interceptor so the
-      // public `cacheInterceptor` references the exact instance Dio uses.
-      interceptors: [cacheInterceptor],
+      // Through cacheConfig, so the factory places it before the observers and
+      // calls setDio for us — the latter is what makes
+      // `invalidateUrl(<relative>)` resolve against baseUrl.
+      cacheConfig: _cacheConfig,
     );
-
-    // Required for `invalidateUrl(<relative>)` to resolve against baseUrl.
-    cacheInterceptor.setDio(c.dio);
     return c;
   }
 }
