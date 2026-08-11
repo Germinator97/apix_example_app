@@ -388,6 +388,12 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
                         const RunV4Probe(V4Probe.brokenObserverIsHarmless),
                       ),
                     ),
+                    _btn(
+                      'Status is not a code (v5.0.0)',
+                      () => context.read<V4Bloc>().add(
+                        const RunV4Probe(V4Probe.statusIsNotABusinessCode),
+                      ),
+                    ),
                   ]),
                   const SizedBox(height: 8),
                   _buildSection(context, '📤 v3.0 — What reaches the tracker', [
@@ -566,6 +572,7 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
     V4Probe.deduplicationWithoutCache => 'dedup without cache',
     V4Probe.networkOnlyStoresNothing => 'networkOnly',
     V4Probe.brokenObserverIsHarmless => 'broken observer',
+    V4Probe.statusIsNotABusinessCode => 'status is not a code',
   };
 
   void _onRetryPolicyState(BuildContext context, RetryPolicyState state) {

@@ -73,6 +73,19 @@ void main() {
       );
     });
 
+    test('a status in the code field is not passed off as a code', () async {
+      final result = await client.run(V4Probe.statusIsNotABusinessCode);
+
+      expect(result.headline, contains('code=null'));
+      expect(
+        result.headline,
+        isNot(contains('REGRESSION')),
+        reason:
+            'the probe renders REGRESSION when the status leaks through '
+            'as a business code, which is what makes this meaningful',
+      );
+    });
+
     test('networkOnly writes nothing', () async {
       final result = await client.run(V4Probe.networkOnlyStoresNothing);
 

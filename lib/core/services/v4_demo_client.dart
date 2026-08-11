@@ -24,6 +24,10 @@ enum V4Probe {
   /// (4.1.0) A log sink that throws on every entry — the request must still
   /// return its 200.
   brokenObserverIsHarmless,
+
+  /// (5.0.0) An envelope whose `code` field holds the HTTP status — apix must
+  /// not pass it off as a business code.
+  statusIsNotABusinessCode,
 }
 
 /// What a probe observed. Deliberately records what actually happened rather
@@ -61,6 +65,7 @@ class V4DemoClient {
       V4Probe.deduplicationWithoutCache => _deduplication(),
       V4Probe.networkOnlyStoresNothing => _networkOnly(),
       V4Probe.brokenObserverIsHarmless => _brokenObserver(),
+      V4Probe.statusIsNotABusinessCode => _statusIsNotACode(),
     };
   }
 
@@ -239,6 +244,46 @@ class V4DemoClient {
         probe: V4Probe.brokenObserverIsHarmless,
         headline: 'REGRESSION — the log sink broke the request',
         detail: '${e.runtimeType}: ${e.message}',
+      );
+    }
+  }
+
+  /// The envelope a consumer actually returns: the HTTP status sits in a field
+  /// named `code`. Reported as a business code it would look like one, and a
+  /// `switch (e.code)` would silently key on a status instead.
+  Future<V4ProbeResult> _statusIsNotACode() async {
+    final client = ApiClientFactory.create(
+      baseUrl: 'https://demo.apix',
+      httpClientAdapter: _ScriptedAdapter(
+        statusCode: 401,
+        body: {
+          'code': 401,
+          'status': 'error',
+          'message': 'Authentification requise. Veuillez vous connecter.',
+        },
+      ),
+    );
+
+    try {
+      await client.get<dynamic>('/profile');
+      return const V4ProbeResult(
+        probe: V4Probe.statusIsNotABusinessCode,
+        headline: 'Unexpected success',
+        detail: 'the stub always answers 401',
+      );
+    } on ApiException catch (e) {
+      final leaked = e.code != null;
+      return V4ProbeResult(
+        probe: V4Probe.statusIsNotABusinessCode,
+        headline: leaked
+            ? 'REGRESSION — code=${e.code} is just the status'
+            : 'code=null, statusCode=${e.statusCode} — the status stayed where '
+                  'it belongs',
+        detail:
+            'Before 5.0.0 this read code="401", so branching on it looked '
+            'like business logic while keying on a status that drifts between '
+            'server revisions. A real code (4001 under a 400) still comes '
+            'through.',
       );
     }
   }
