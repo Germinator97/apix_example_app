@@ -1,11 +1,21 @@
-/// What a probe is about — the axis the demo is organised along.
+/// What a section is about — the single axis the demo is organised along.
 ///
-/// Deliberately **not** the release that introduced it. Grouping by version
-/// made the demo grow a section and a bloc per release, and it asked the reader
-/// the wrong question: nobody opens a demo wondering what 4.1 shipped, they
-/// wonder how caching behaves. A probe added tomorrow lands in the theme it
-/// belongs to, and the release it came from is a line in the CHANGELOG.
+/// Deliberately **not** the release that introduced something. Grouping by
+/// version made the demo grow a section and a bloc per release, and it asked
+/// the reader the wrong question: nobody opens a demo wondering what 4.1
+/// shipped, they wonder how caching behaves. The release something came from is
+/// a line in the CHANGELOG.
+///
+/// These themes file *everything* the screen shows — the live features that
+/// drive the app as well as the self-contained probes. Two taxonomies would put
+/// "Cache Actions" and "the cache is scoped to the caller" in different places
+/// on the same screen, which is exactly the sort of split a reader has to hold
+/// in their head for no reason.
+///
+/// [requests] carries no probes: it is where the plain CRUD and envelope
+/// features live. A theme with nothing in it simply renders no section.
 enum ProbeTheme {
+  requests('📥', 'Requests & responses'),
   cache('💾', 'Cache'),
   authUploads('🔐', 'Auth & uploads'),
   errors('⚠️', 'Errors & error codes'),

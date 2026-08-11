@@ -15,6 +15,7 @@ import '../blocs/envelope/envelope_state.dart';
 import '../blocs/posts/posts_bloc.dart';
 import '../blocs/posts/posts_event.dart';
 import '../blocs/posts/posts_state.dart';
+import '../../core/probes/demo_probe.dart';
 import '../../core/probes/probe_registry.dart';
 import '../blocs/probes/probe_bloc.dart';
 import '../blocs/sentry/sentry_bloc.dart';
@@ -139,174 +140,7 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  _buildSection(context, 'Users (Basic Requests)', [
-                    _btn(
-                      'Fetch Users',
-                      () => context.read<UsersBloc>().add(const FetchUsers()),
-                    ),
-                  ]),
-                  const SizedBox(height: 16),
-                  _buildSection(context, 'Cache Strategies', [
-                    CacheStrategySelector(
-                      selected: _selectedStrategy,
-                      onChanged: (strategy) {
-                        setState(() => _selectedStrategy = strategy);
-                        context.read<PostsBloc>().add(
-                          FetchPosts(strategy: strategy),
-                        );
-                      },
-                    ),
-                  ]),
-                  const SizedBox(height: 8),
-                  _buildSection(context, 'Cache Actions', [
-                    _btn(
-                      'Force Refresh',
-                      () => context.read<PostsBloc>().add(
-                        FetchPosts(
-                          strategy: _selectedStrategy,
-                          forceRefresh: true,
-                        ),
-                      ),
-                    ),
-                    _btn(
-                      'Clear Cache',
-                      () => context.read<PostsBloc>().add(
-                        const ClearPostsCache(),
-                      ),
-                    ),
-                    _btn(
-                      'Inspect Keys',
-                      () => context.read<PostsBloc>().add(
-                        const InspectCacheKeys(),
-                      ),
-                    ),
-                    _btn(
-                      'Invalidate /posts',
-                      () => context.read<PostsBloc>().add(
-                        const InvalidatePostsUrl('/posts'),
-                      ),
-                    ),
-                    _btn(
-                      'Invalidate path "/posts"',
-                      () => context.read<PostsBloc>().add(
-                        const InvalidatePostsPath('/posts'),
-                      ),
-                    ),
-                    _btn(
-                      'Invalidate prefix "GET:"',
-                      () => context.read<PostsBloc>().add(
-                        const InvalidatePostsByPrefix('GET:'),
-                      ),
-                    ),
-                  ]),
-                  const SizedBox(height: 8),
-                  _buildSection(context, 'Mutations (POST/PUT/PATCH/DELETE)', [
-                    _btn(
-                      'Create Post',
-                      () => context.read<PostsBloc>().add(
-                        const CreateNewPost(
-                          title: 'Hello from ApiX',
-                          body: 'Created with Clean Architecture + BLoC',
-                          userId: 1,
-                        ),
-                      ),
-                    ),
-                    _btn(
-                      'Update Post #1',
-                      () => context.read<PostsBloc>().add(
-                        const UpdateExistingPost(
-                          id: 1,
-                          title: 'Replaced via PUT',
-                          body: 'Body replaced with apix.put()',
-                          userId: 1,
-                        ),
-                      ),
-                    ),
-                    _btn(
-                      'Patch Post #1',
-                      () => context.read<PostsBloc>().add(
-                        const PatchExistingPost(
-                          id: 1,
-                          title: 'Patched via PATCH',
-                        ),
-                      ),
-                    ),
-                    _btn(
-                      'Delete Post #1',
-                      () => context.read<PostsBloc>().add(
-                        const DeleteExistingPost(1),
-                      ),
-                    ),
-                  ]),
-                  const SizedBox(height: 8),
-                  _buildSection(context, 'Multipart Upload', [
-                    _btn('Upload Demo File', () async {
-                      try {
-                        final file = await _createDemoFile();
-                        if (!context.mounted) return;
-                        context.read<PostsBloc>().add(UploadDemoFile(file));
-                      } on PlatformException catch (e) {
-                        _updateStatus('❌ Upload prep failed: ${e.message}');
-                      }
-                    }),
-                  ]),
-                  const SizedBox(height: 8),
-                  _buildSection(context, 'Envelope API ({"payload": ...})', [
-                    _btn(
-                      'getAndDecodeData',
-                      () => context.read<EnvelopeBloc>().add(
-                        const FetchEnvelopeUser(7),
-                      ),
-                    ),
-                    _btn(
-                      'getListAndDecodeData',
-                      () => context.read<EnvelopeBloc>().add(
-                        const FetchEnvelopeUsers(),
-                      ),
-                    ),
-                    _btn(
-                      'getListAndParseData',
-                      () => context.read<EnvelopeBloc>().add(
-                        const FetchEnvelopeRoles(),
-                      ),
-                    ),
-                    _btn(
-                      'postAndDecodeData',
-                      () => context.read<EnvelopeBloc>().add(
-                        const CreateEnvelopeUser('Charlie'),
-                      ),
-                    ),
-                  ]),
-                  const SizedBox(height: 8),
-                  ..._probeSections(context),
-                  _buildSection(context, '🐛 Sentry Integration', [
-                    _sentryBtn(
-                      context,
-                      'Test Error (500)',
-                      const TriggerTestError(),
-                    ),
-                    _sentryBtn(context, 'Timeout', const TriggerTimeout()),
-                    _sentryBtn(
-                      context,
-                      'Not Found (404)',
-                      const TriggerNotFound(),
-                    ),
-                    _sentryBtn(
-                      context,
-                      'Unauthorized (401)',
-                      const TriggerUnauthorized(),
-                    ),
-                    _sentryBtn(
-                      context,
-                      'Real API Error',
-                      const TriggerRealApiError(),
-                    ),
-                    _sentryBtn(
-                      context,
-                      'Manual Message',
-                      const CaptureManualException('Test message from ApiX'),
-                    ),
-                  ]),
+                  ..._themeSections(context),
                   const SizedBox(height: 24),
                   BlocBuilder<UsersBloc, UsersState>(
                     builder: (context, state) {
@@ -420,27 +254,173 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
 
   // --- UI helpers --------------------------------------------------------
 
-  /// One section per theme, straight from the registry.
+  /// The hand-written parts of a theme: live features, not probes.
   ///
-  /// The screen no longer knows what any probe *is*: it knows there are themes
-  /// and that each holds buttons. Sections used to be hand-written per release
-  /// — v2.1, v2.3, v3.0, v4.0, v5.0 — so every version added a heading here, a
-  /// bloc, a listener and a label mapping. Adding a probe now touches one list
-  /// and nothing else.
-  List<Widget> _probeSections(BuildContext context) {
-    final registry = sl<ProbeRegistry>();
-    return [
-      for (final theme in registry.themes) ...[
-        _buildSection(context, theme.heading, [
-          for (final probe in registry.byTheme(theme))
-            _btn(
-              probe.label,
-              () => context.read<ProbeBloc>().add(RunProbe(probe)),
+  /// Probes are self-contained and come from the registry. These drive the app
+  /// itself — they own blocs that hold lists and render into widgets rather
+  /// than a status line — so they stay hand-written. Filing them under the same
+  /// themes is what makes the screen read as one taxonomy: "Cache Actions" and
+  /// "the cache is scoped to the caller" belong together, and used to sit in
+  /// different halves of the same page.
+  List<Widget> _featureWidgets(BuildContext context, ProbeTheme theme) {
+    switch (theme) {
+      case ProbeTheme.requests:
+        return [
+          _btn(
+            'Fetch Users',
+            () => context.read<UsersBloc>().add(const FetchUsers()),
+          ),
+          _btn(
+            'Create Post',
+            () => context.read<PostsBloc>().add(
+              const CreateNewPost(
+                title: 'Hello from ApiX',
+                body: 'Created with Clean Architecture + BLoC',
+                userId: 1,
+              ),
             ),
-        ]),
-        const SizedBox(height: 8),
-      ],
-    ];
+          ),
+          _btn(
+            'Update Post #1',
+            () => context.read<PostsBloc>().add(
+              const UpdateExistingPost(
+                id: 1,
+                title: 'Replaced via PUT',
+                body: 'Body replaced with apix.put()',
+                userId: 1,
+              ),
+            ),
+          ),
+          _btn(
+            'Patch Post #1',
+            () => context.read<PostsBloc>().add(
+              const PatchExistingPost(id: 1, title: 'Patched via PATCH'),
+            ),
+          ),
+          _btn(
+            'Delete Post #1',
+            () => context.read<PostsBloc>().add(const DeleteExistingPost(1)),
+          ),
+          _btn(
+            'getAndDecodeData',
+            () => context.read<EnvelopeBloc>().add(const FetchEnvelopeUser(7)),
+          ),
+          _btn(
+            'getListAndDecodeData',
+            () => context.read<EnvelopeBloc>().add(const FetchEnvelopeUsers()),
+          ),
+          _btn(
+            'getListAndParseData',
+            () => context.read<EnvelopeBloc>().add(const FetchEnvelopeRoles()),
+          ),
+          _btn(
+            'postAndDecodeData',
+            () => context.read<EnvelopeBloc>().add(
+              const CreateEnvelopeUser('Charlie'),
+            ),
+          ),
+        ];
+      case ProbeTheme.cache:
+        return [
+          CacheStrategySelector(
+            selected: _selectedStrategy,
+            onChanged: (strategy) {
+              setState(() => _selectedStrategy = strategy);
+              context.read<PostsBloc>().add(FetchPosts(strategy: strategy));
+            },
+          ),
+          _btn(
+            'Force Refresh',
+            () => context.read<PostsBloc>().add(
+              FetchPosts(strategy: _selectedStrategy, forceRefresh: true),
+            ),
+          ),
+          _btn(
+            'Clear Cache',
+            () => context.read<PostsBloc>().add(const ClearPostsCache()),
+          ),
+          _btn(
+            'Inspect Keys',
+            () => context.read<PostsBloc>().add(const InspectCacheKeys()),
+          ),
+          _btn(
+            'Invalidate /posts',
+            () => context.read<PostsBloc>().add(
+              const InvalidatePostsUrl('/posts'),
+            ),
+          ),
+          _btn(
+            'Invalidate path "/posts"',
+            () => context.read<PostsBloc>().add(
+              const InvalidatePostsPath('/posts'),
+            ),
+          ),
+          _btn(
+            'Invalidate prefix "GET:"',
+            () => context.read<PostsBloc>().add(
+              const InvalidatePostsByPrefix('GET:'),
+            ),
+          ),
+        ];
+      case ProbeTheme.authUploads:
+        return [
+          _btn('Upload Demo File', () async {
+            try {
+              final file = await _createDemoFile();
+              if (!context.mounted) return;
+              context.read<PostsBloc>().add(UploadDemoFile(file));
+            } on PlatformException catch (e) {
+              _updateStatus('❌ Upload prep failed: ${e.message}');
+            }
+          }),
+        ];
+      case ProbeTheme.observability:
+        return [
+          _sentryBtn(context, 'Test Error (500)', const TriggerTestError()),
+          _sentryBtn(context, 'Timeout', const TriggerTimeout()),
+          _sentryBtn(context, 'Not Found (404)', const TriggerNotFound()),
+          _sentryBtn(
+            context,
+            'Unauthorized (401)',
+            const TriggerUnauthorized(),
+          ),
+          _sentryBtn(context, 'Real API Error', const TriggerRealApiError()),
+          _sentryBtn(
+            context,
+            'Manual Message',
+            const CaptureManualException('Test message from ApiX'),
+          ),
+        ];
+      case ProbeTheme.errors:
+      case ProbeTheme.retry:
+        return const [];
+    }
+  }
+
+  /// One section per theme, features first, then the probes that pin them.
+  ///
+  /// A theme with neither renders nothing, so the list of themes can grow
+  /// without leaving empty headings behind.
+  List<Widget> _themeSections(BuildContext context) {
+    final registry = sl<ProbeRegistry>();
+    final sections = <Widget>[];
+
+    for (final theme in ProbeTheme.values) {
+      final children = <Widget>[
+        ..._featureWidgets(context, theme),
+        for (final probe in registry.byTheme(theme))
+          _btn(
+            probe.label,
+            () => context.read<ProbeBloc>().add(RunProbe(probe)),
+          ),
+      ];
+      if (children.isEmpty) continue;
+      sections
+        ..add(_buildSection(context, theme.heading, children))
+        ..add(const SizedBox(height: 8));
+    }
+
+    return sections;
   }
 
   void _onProbeState(BuildContext context, ProbeState state) {

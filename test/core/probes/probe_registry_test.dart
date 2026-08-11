@@ -54,10 +54,19 @@ void main() {
       expect(rendered, hasLength(registry.all.length));
     });
 
-    test('the five themes are all populated', () {
+    test('every theme except requests carries probes', () {
       // Not a count of probes — a count of themes. If a theme empties out, the
       // taxonomy has drifted and that is worth a decision, not a silent gap.
-      expect(registry.themes, hasLength(ProbeTheme.values.length));
+      //
+      // `requests` is the deliberate exception: it holds the live CRUD and
+      // envelope features, which are hand-written on the screen and have no
+      // probe of their own. Naming it here means the day it *does* get one, or
+      // the day another theme loses its last probe, this test says so.
+      expect(
+        registry.themes.toSet(),
+        ProbeTheme.values.toSet()..remove(ProbeTheme.requests),
+      );
+      expect(registry.byTheme(ProbeTheme.requests), isEmpty);
     });
 
     test('byId finds a known probe and refuses an unknown one', () {
