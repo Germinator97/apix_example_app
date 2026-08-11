@@ -34,6 +34,9 @@ class ScriptedAdapter implements HttpClientAdapter {
   /// The most recent request — what a probe inspects to prove what was sent.
   RequestOptions? get lastRequest => seen.isEmpty ? null : seen.last;
 
+  /// Total bytes read off the request stream, across every request.
+  int sentBytes = 0;
+
   @override
   Future<ResponseBody> fetch(
     RequestOptions options,
@@ -42,6 +45,17 @@ class ScriptedAdapter implements HttpClientAdapter {
   ) async {
     hits++;
     seen.add(options);
+
+    // Drain the body, as any real adapter does when it writes it to a socket.
+    //
+    // Not cosmetic: dio drives `onSendProgress` from the stream being *read*,
+    // so an adapter that ignores it reports zero progress on an upload that is
+    // wired correctly — a stub disproving a feature it simply never exercised.
+    if (requestStream != null) {
+      await for (final chunk in requestStream) {
+        sentBytes += chunk.length;
+      }
+    }
     try {
       final answer = respond(options);
       if (answer is ScriptedResponse) {

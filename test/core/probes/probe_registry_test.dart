@@ -164,6 +164,88 @@ void main() {
       expect(headline, isNot(contains('REGRESSION')));
       expect(headline, contains('HTTP 200'));
     });
+
+    // The four below report a *number* or a *string*, not a marker word, so
+    // the registry-wide sweep at the bottom of this file cannot see them fail.
+    // A probe whose evidence is "2 network calls" would sail through it.
+
+    test('cache — a broken store still sends one request', () async {
+      final headline = await headlineOf('cache.write_failure_sends_once');
+      expect(
+        headline,
+        contains('1 network call'),
+        reason:
+            'a storage failure used to escape into the network fallback '
+            'and re-send the request, handing back the second answer',
+      );
+      expect(headline, contains('n=1'));
+    });
+
+    test('cache — listing the keys keeps the offline fallback', () async {
+      final headline = await headlineOf('cache.listing_is_not_deleting');
+      expect(headline, contains('served 4200'));
+      expect(headline, contains('stale: true'));
+    });
+
+    test('cache — a hit and a storage failure are both reported', () async {
+      final headline = await headlineOf('cache.hits_are_reportable');
+      expect(headline, contains('1 hit reported'));
+      expect(headline, contains('1 storage failure reported'));
+    });
+
+    test('observability — a retry strands no metric', () async {
+      final headline = await headlineOf(
+        'observability.retry_leaves_nothing_in_flight',
+      );
+      expect(headline, contains('3 attempts'));
+      expect(headline, contains('1 metric'));
+      expect(
+        headline,
+        contains('0 left in flight'),
+        reason: 'two entries used to linger until the five-minute sweep',
+      );
+    });
+
+    test('observability — the error body stays out of the logs', () async {
+      final headline = await headlineOf(
+        'observability.error_body_stays_out_of_logs',
+      );
+      expect(headline, contains('body withheld'));
+      expect(headline, contains('500'), reason: 'the status must survive');
+      expect(headline, isNot(contains('example.com')));
+    });
+
+    test('observability — a query token never reaches the tracker', () async {
+      final headline = await headlineOf(
+        'observability.query_values_never_reach_the_tracker',
+      );
+      expect(headline, isNot(contains('super-secret-value')));
+      expect(headline, contains('[REDACTED]'));
+      expect(
+        headline,
+        contains('token='),
+        reason:
+            'the parameter names stay, or the report loses most of its '
+            'value',
+      );
+    });
+
+    test('auth — a typed upload reports progress', () async {
+      final headline = await headlineOf('auth.typed_upload_progress');
+      expect(headline, contains('id=42'));
+      expect(headline, isNot(contains('0 progress callback')));
+    });
+
+    test('auth — a FormData replay names itself', () async {
+      final headline = await headlineOf('auth.formdata_replay_is_named');
+      expect(
+        headline,
+        contains('MultipartReplayException'),
+        reason:
+            'it used to surface as ApiException: Unknown error, replacing '
+            'the 500 that triggered the replay',
+      );
+    });
   });
 
   test('no probe reports a regression, whichever one it is', () async {

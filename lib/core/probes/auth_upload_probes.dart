@@ -29,7 +29,91 @@ List<DemoProbe> authUploadProbes() => [
     label: 'TokenProviderException',
     run: _tokenProviderFailure,
   ),
+  DemoProbe(
+    id: 'auth.typed_upload_progress',
+    theme: ProbeTheme.authUploads,
+    label: 'A typed upload reports progress',
+    run: _typedUploadProgress,
+  ),
+  DemoProbe(
+    id: 'auth.formdata_replay_is_named',
+    theme: ProbeTheme.authUploads,
+    label: 'A FormData replay says why',
+    run: _formDataReplayIsNamed,
+  ),
 ];
+
+/// Upload through a typed method while watching the bytes go out.
+Future<ProbeOutcome> _typedUploadProgress() async {
+  final file = await _tempFile('passport.png', 'x' * 4096);
+  final adapter = ScriptedAdapter(
+    (options) => {
+      'data': {'id': 42},
+    },
+  );
+  final client = ApiClientFactory.create(
+    baseUrl: 'https://demo.apix',
+    httpClientAdapter: adapter,
+  );
+
+  final ticks = <int>[];
+  final id = await client.postAndDecodeData<int>(
+    '/documents',
+    {'file': file, 'label': 'passport'},
+    (json) => json['id'] as int,
+    onSendProgress: (sent, total) => ticks.add(sent),
+  );
+
+  return ProbeOutcome(
+    headline: 'decoded id=$id, ${ticks.length} progress callback(s)',
+    detail:
+        'The raw verbs took onSendProgress and the sixty typed ones did not, '
+        'so a typed upload with a progress bar was not expressible: the only '
+        'way to get one was to drop back to client.post and parse the body by '
+        'hand, losing the typing those methods exist for. The twelve GET '
+        'variants still take only onReceiveProgress — a GET has nothing to '
+        'send, and an option that can never fire is one that looks set.',
+  );
+}
+
+/// Hand apix a FormData it did not build, then force a replay.
+Future<ProbeOutcome> _formDataReplayIsNamed() async {
+  var seen = 0;
+  final adapter = ScriptedAdapter((options) {
+    seen++;
+    return seen == 1
+        ? const ScriptedResponse({'message': 'boom'}, statusCode: 500)
+        : {'ok': true};
+  });
+  final client = ApiClientFactory.create(
+    baseUrl: 'https://demo.apix',
+    retryConfig: const RetryConfig(maxAttempts: 2, baseDelayMs: 1, jitter: 0),
+    httpClientAdapter: adapter,
+  );
+
+  final form = FormData.fromMap({'note': 'built by the caller'});
+
+  Object? caught;
+  try {
+    await client.put<dynamic>('/documents/1', data: form);
+  } catch (e) {
+    caught = e;
+  }
+
+  return ProbeOutcome(
+    headline: caught is MultipartReplayException
+        ? 'MultipartReplayException after $seen attempt(s)'
+        : 'got ${caught.runtimeType}',
+    detail:
+        'A FormData is single-use — dio finalizes it into a stream — and both '
+        'the auth refresh and the retry replay the original RequestOptions. '
+        'When you pass a Map of Files apix rebuilds the body per attempt and '
+        'the replay simply works; this is the case where it cannot. It used to '
+        'surface as a StateError mapped to "ApiException: Unknown error", '
+        'REPLACING the 500 that triggered the replay — so on ServerException '
+        'catch stopped matching.',
+  );
+}
 
 Future<ProbeOutcome> _uploadSurvivesRefresh() async {
   final file = await _tempFile('report.pdf', 'pdf-bytes');
