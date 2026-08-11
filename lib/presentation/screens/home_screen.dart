@@ -11,6 +11,7 @@ import '../../core/services/api_client_provider.dart';
 import '../../core/services/error_tracking_demo_client.dart';
 import '../../core/services/retry_policy_demo_client.dart';
 import '../../core/services/v4_demo_client.dart';
+import '../../core/services/v5_demo_client.dart';
 import '../../core/theme/app_theme.dart';
 import '../blocs/envelope/envelope_bloc.dart';
 import '../blocs/envelope/envelope_event.dart';
@@ -23,8 +24,11 @@ import '../blocs/posts/posts_event.dart';
 import '../blocs/posts/posts_state.dart';
 import '../blocs/retry_policy/retry_policy_bloc.dart';
 import '../blocs/v4/v4_state.dart';
+import '../blocs/v5/v5_state.dart';
 import '../blocs/v4/v4_event.dart';
+import '../blocs/v5/v5_event.dart';
 import '../blocs/v4/v4_bloc.dart';
+import '../blocs/v5/v5_bloc.dart';
 import '../blocs/retry_policy/retry_policy_event.dart';
 import '../blocs/retry_policy/retry_policy_state.dart';
 import '../blocs/sentry/sentry_bloc.dart';
@@ -52,6 +56,7 @@ class HomeScreen extends StatelessWidget {
         BlocProvider(create: (_) => sl<Epic11Bloc>()),
         BlocProvider(create: (_) => sl<RetryPolicyBloc>()),
         BlocProvider(create: (_) => sl<V4Bloc>()),
+        BlocProvider(create: (_) => sl<V5Bloc>()),
         BlocProvider(create: (_) => sl<TrackingBloc>()),
         BlocProvider(create: (_) => sl<SentryBloc>()),
       ],
@@ -145,6 +150,7 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
             listener: _onRetryPolicyState,
           ),
           BlocListener<V4Bloc, V4State>(listener: _onV4State),
+          BlocListener<V5Bloc, V5State>(listener: _onV5State),
           BlocListener<TrackingBloc, TrackingState>(listener: _onTrackingState),
           BlocListener<SentryBloc, SentryState>(listener: _onSentryState),
         ],
@@ -396,6 +402,52 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
                     ),
                   ]),
                   const SizedBox(height: 8),
+                  // The 4.x probes answered an integration report. These six
+                  // answer an audit, and share a different shape: each defect
+                  // produced a WRONG ANSWER rather than an error — the cache
+                  // returned the previous account's body, the upload arrived
+                  // empty. Nothing raised, so nothing was ever reported.
+                  _buildSection(context, '🔎 v5.0 — What the audit found', [
+                    _btn(
+                      'Cache is scoped to the caller',
+                      () => context.read<V5Bloc>().add(
+                        const RunV5Probe(V5Probe.cacheIsScopedToCaller),
+                      ),
+                    ),
+                    _btn(
+                      'Inline ?page= does not collide',
+                      () => context.read<V5Bloc>().add(
+                        const RunV5Probe(V5Probe.inlineQueryDoesNotCollide),
+                      ),
+                    ),
+                    _btn(
+                      'Nested multipart keeps everything',
+                      () => context.read<V5Bloc>().add(
+                        const RunV5Probe(
+                          V5Probe.nestedMultipartKeepsEverything,
+                        ),
+                      ),
+                    ),
+                    _btn(
+                      'Upload survives a token refresh',
+                      () => context.read<V5Bloc>().add(
+                        const RunV5Probe(V5Probe.uploadSurvivesTokenRefresh),
+                      ),
+                    ),
+                    _btn(
+                      '200 + success:false is a failure',
+                      () => context.read<V5Bloc>().add(
+                        const RunV5Probe(V5Probe.businessFailureIsNotASuccess),
+                      ),
+                    ),
+                    _btn(
+                      'A bare [] is an empty list',
+                      () => context.read<V5Bloc>().add(
+                        const RunV5Probe(V5Probe.bareArrayIsAnEmptyList),
+                      ),
+                    ),
+                  ]),
+                  const SizedBox(height: 8),
                   _buildSection(context, '📤 v3.0 — What reaches the tracker', [
                     _btn(
                       '500 → reported',
@@ -573,6 +625,28 @@ class _HomeScreenContentState extends State<_HomeScreenContent> {
     V4Probe.networkOnlyStoresNothing => 'networkOnly',
     V4Probe.brokenObserverIsHarmless => 'broken observer',
     V4Probe.statusIsNotABusinessCode => 'status is not a code',
+  };
+
+  void _onV5State(BuildContext context, V5State state) {
+    if (state is V5Running) {
+      _updateStatus('⏳ Running ${_v5Label(state.probe)}...');
+    } else if (state is V5Measured) {
+      _updateStatus(
+        '🔎 ${_v5Label(state.result.probe)} — '
+        '${state.result.headline}',
+      );
+    } else if (state is V5Failed) {
+      _updateStatus('❌ ${_v5Label(state.probe)} — ${state.reason}');
+    }
+  }
+
+  String _v5Label(V5Probe probe) => switch (probe) {
+    V5Probe.cacheIsScopedToCaller => 'cache scoping',
+    V5Probe.inlineQueryDoesNotCollide => 'inline query',
+    V5Probe.nestedMultipartKeepsEverything => 'nested multipart',
+    V5Probe.uploadSurvivesTokenRefresh => 'upload replay',
+    V5Probe.businessFailureIsNotASuccess => 'business failure',
+    V5Probe.bareArrayIsAnEmptyList => 'bare array',
   };
 
   void _onRetryPolicyState(BuildContext context, RetryPolicyState state) {
