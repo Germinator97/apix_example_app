@@ -27,12 +27,20 @@ import 'package:integration_test/integration_test.dart';
 /// sees an exception at all — and five substrings, a callback and twenty-five
 /// unit tests would be guarding a door that does not open on Android.
 ///
-/// ## It stages its own corruption
+/// ## What the first run measured — 11 Aug 2026, Android 16 emulator
 ///
-/// No adb, no reinstall, no restored backup. Writing under one cipher and
-/// reading under another with `migrateOnAlgorithmChange: false` produces a real
-/// decryption failure, which is the same class of event as a keystore key lost
-/// to a restore. That is what makes this an assertion rather than a report.
+/// * The real round-trip works: the wrapper reaches the platform.
+/// * **The corruption staging does not stage.** Writing under one key cipher
+///   and reading under another with `migrateOnAlgorithmChange: false` returns
+///   the correct value, `resetOnError` either way — the plugin records the
+///   algorithm per entry. So the recovery question is still open, and those
+///   tests are skipped rather than red: what is defective is the trigger, not
+///   apix. See the note above the group for what is left to try.
+/// * **`withBiometrics()` degrades silently.** On a device with no lock screen
+///   and no enrolled biometric, `enforceBiometrics: true` wrote and read back
+///   with no prompt and no error — indistinguishable from the plain
+///   constructor. That is a platform behaviour apix cannot change, so what
+///   changed is the factory's documentation, which claimed enforcement flatly.
 ///
 /// ## Running it
 ///
@@ -128,6 +136,29 @@ void main() {
     });
   });
 
+  // MEASURED 11 Aug 2026, Android 16 emulator, flutter_secure_storage 10.0.0:
+  // **this staging does not stage.** Writing under RSA key wrapping and reading
+  // under AES_GCM with `migrateOnAlgorithmChange: false` returned the correct
+  // value, with `resetOnError` both true and false. The plugin evidently
+  // records the algorithm per entry and decrypts with the one that was used, so
+  // asking for a different one on read is not corruption — it is a request the
+  // plugin ignores.
+  //
+  // The two tests below are therefore skipped rather than left red: red would
+  // report a defect in apix, and what is defective is the trigger. They are
+  // kept, not deleted, because the question they ask is still open and still
+  // the most valuable one on this component — does apix's recovery ever fire
+  // on a real corruption, and does the message match the five substrings?
+  //
+  // What is left to try, in order of cost:
+  //   1. overwrite the stored ciphertext directly, via `sharedPreferencesName`
+  //      + `preferencesKeyPrefix` and a second prefs plugin;
+  //   2. `adb shell run-as … sed` on the prefs XML, which needs the run to
+  //      pause mid-test since `flutter test` uninstalls the app afterwards;
+  //   3. a genuine Android Auto Backup restore, which is the real-world cause:
+  //      encrypted prefs are backed up, keystore keys are not.
+  const stagingWorks = false;
+
   group('what the platform really throws when it cannot decrypt', () {
     /// Writes under one key cipher, then reads under another with migration
     /// off — a genuine decryption failure, staged from Dart.
@@ -148,7 +179,9 @@ void main() {
       }
     }
 
-    testWidgets('captured verbatim, with resetOnError off', (tester) async {
+    testWidgets('captured verbatim, with resetOnError off', skip: !stagingWorks, (
+      tester,
+    ) async {
       final outcome = await stageCorruptionAndRead(resetOnError: false);
 
       if (outcome is _NoThrow) {
@@ -194,120 +227,174 @@ void main() {
       );
     });
 
-    testWidgets('and apix therefore recovers, and says so', (tester) async {
-      final announced = <SecureStorageRecovery>[];
+    testWidgets(
+      'and apix therefore recovers, and says so',
+      skip: !stagingWorks,
+      (tester) async {
+        final announced = <SecureStorageRecovery>[];
 
-      await plain(
-        keyCipher: KeyCipherAlgorithm.RSA_ECB_OAEPwithSHA_256andMGF1Padding,
-      ).write(key: 'apix_probe_token', value: 'value-from-device');
+        await plain(
+          keyCipher: KeyCipherAlgorithm.RSA_ECB_OAEPwithSHA_256andMGF1Padding,
+        ).write(key: 'apix_probe_token', value: 'value-from-device');
 
-      final service = SecureStorageService(
-        storage: plain(
-          resetOnError: false,
-          keyCipher: KeyCipherAlgorithm.AES_GCM_NoPadding,
-        ),
-        onBeforeRecoveryDelete: announced.add,
-      );
-
-      final value = await service.read('apix_probe_token');
-
-      report('apix read → $value · announced ${announced.length} recovery');
-
-      expect(
-        value,
-        isNull,
-        reason:
-            'the contract is that an unreadable entry is a miss, never a '
-            'throw — this is the end-to-end version of the assertion above',
-      );
-      expect(
-        announced,
-        hasLength(1),
-        reason:
-            'the channel a consumer asked for has to fire on the real '
-            'trigger, not only on the mocked one',
-      );
-      expect(announced.single.operation, SecureStorageOperation.read);
-      expect(announced.single.key, 'apix_probe_token');
-      expect(announced.single.isFullWipe, isFalse);
-    });
-
-    testWidgets('resetOnError:true — does apix ever see the failure?', (
-      tester,
-    ) async {
-      // apix's own default. If the plugin absorbs the corruption here, the
-      // recovery path is unreachable in the configuration consumers get out of
-      // the box — which is worth knowing even though it is not a failure.
-      final outcome = await stageCorruptionAndRead(resetOnError: true);
-
-      if (outcome is _NoThrow) {
-        report(
-          'resetOnError:true → plugin absorbed it, read gave '
-          '${outcome.value} — apix\'s recovery never runs in this config',
+        final service = SecureStorageService(
+          storage: plain(
+            resetOnError: false,
+            keyCipher: KeyCipherAlgorithm.AES_GCM_NoPadding,
+          ),
+          onBeforeRecoveryDelete: announced.add,
         );
-      } else {
-        report('resetOnError:true → still throws: $outcome');
-      }
 
-      // Deliberately no assertion: both outcomes are legitimate, and pinning
-      // the one observed today would freeze a plugin behaviour apix does not
-      // own. The `DEVICE |` line is the deliverable.
-    });
+        final value = await service.read('apix_probe_token');
+
+        report('apix read → $value · announced ${announced.length} recovery');
+
+        expect(
+          value,
+          isNull,
+          reason:
+              'the contract is that an unreadable entry is a miss, never a '
+              'throw — this is the end-to-end version of the assertion above',
+        );
+        expect(
+          announced,
+          hasLength(1),
+          reason:
+              'the channel a consumer asked for has to fire on the real '
+              'trigger, not only on the mocked one',
+        );
+        expect(announced.single.operation, SecureStorageOperation.read);
+        expect(announced.single.key, 'apix_probe_token');
+        expect(announced.single.isFullWipe, isFalse);
+      },
+    );
+
+    testWidgets(
+      'resetOnError:true — does apix ever see the failure?',
+      skip: !stagingWorks,
+      (tester) async {
+        // apix's own default. If the plugin absorbs the corruption here, the
+        // recovery path is unreachable in the configuration consumers get out of
+        // the box — which is worth knowing even though it is not a failure.
+        final outcome = await stageCorruptionAndRead(resetOnError: true);
+
+        if (outcome is _NoThrow) {
+          report(
+            'resetOnError:true → plugin absorbed it, read gave '
+            '${outcome.value} — apix\'s recovery never runs in this config',
+          );
+        } else {
+          report('resetOnError:true → still throws: $outcome');
+        }
+
+        // Deliberately no assertion: both outcomes are legitimate, and pinning
+        // the one observed today would freeze a plugin behaviour apix does not
+        // own. The `DEVICE |` line is the deliverable.
+      },
+    );
   });
 
-  group('withBiometrics is more than a constructor', () {
-    testWidgets('an enforced write does not silently succeed without auth', (
-      tester,
-    ) async {
-      final service = SecureStorageService.withBiometrics(
-        biometricPromptTitle: 'apix device probe',
-        biometricPromptSubtitle: 'Staging a biometric-backed write',
-      );
+  /// Whether this device has a lock screen or an enrolled biometric. Passed
+  /// in rather than detected: Dart cannot see it, and a probe that guesses the
+  /// state it is measuring against is measuring nothing.
+  ///
+  /// ```bash
+  /// adb shell locksettings get-disabled          # true → no credential
+  /// adb shell dumpsys fingerprint | grep -i enrolled
+  /// flutter test integration_test/secure_storage_device_test.dart \
+  ///   -d <id> --dart-define=APIX_DEVICE_HAS_CREDENTIAL=true
+  /// ```
+  const hasCredential = bool.fromEnvironment('APIX_DEVICE_HAS_CREDENTIAL');
 
-      // A satisfiable prompt blocks forever in an integration test, and that
-      // is itself the answer: the enforcement is active. Anything that returns
-      // fast is either a refusal or a silent no-op, and only the second is a
-      // defect.
-      Object? failure;
-      var completed = false;
-      try {
+  group('withBiometrics is more than a constructor', () {
+    testWidgets(
+      'it degrades silently when there is nothing to prompt for '
+      '(skipped on a device that has a credential)',
+      skip: hasCredential,
+      (tester) async {
+        final service = SecureStorageService.withBiometrics();
+
         await service
             .write('apix_probe_biometric', 'value')
             .timeout(const Duration(seconds: 8));
-        completed = true;
-      } on TimeoutException {
-        report('withBiometrics → prompt is blocking: enforcement is ACTIVE');
-        return;
-      } catch (e) {
-        failure = e;
-      }
+        final readBack = await service.read('apix_probe_biometric');
 
-      if (failure != null) {
-        report('withBiometrics → refused: $failure');
-        return;
-      }
+        report('withBiometrics, no credential → read back: $readBack');
 
-      // It returned. The only acceptable reading is that this device has an
-      // enrolled credential and the platform satisfied the prompt without UI —
-      // in which case the value must actually be there.
-      expect(completed, isTrue);
-      final readBack = await service
-          .read('apix_probe_biometric')
-          .timeout(const Duration(seconds: 8), onTimeout: () => null);
+        // Pinning the degradation, not the protection — that is what actually
+        // happens, and a consumer has to know it. The failure this guards is
+        // the opposite one: the day a plugin release starts enforcing, this
+        // goes red and the documentation promising degradation is what needs
+        // updating.
+        expect(
+          readBack,
+          'value',
+          reason:
+              'apix documents that withBiometrics() degrades silently on a '
+              'device with nothing to enforce against. If this fails, the '
+              'platform has started enforcing, and that documentation — and '
+              'this expectation — are what need to change.',
+        );
 
-      report('withBiometrics → wrote and read back: $readBack');
-      expect(
-        readBack,
-        'value',
-        reason:
-            'the write reported success, so the value has to exist. A '
-            'silent no-op is the one outcome that would make '
-            'SecureStorageService.withBiometrics() a factory that looks like '
-            'protection and is not.',
-      );
+        await service.delete('apix_probe_biometric');
+      },
+    );
 
-      await service.delete('apix_probe_biometric');
-    });
+    testWidgets(
+      'an enforced write does not silently succeed without auth '
+      '(needs a lock screen or an enrolled biometric)',
+      skip: !hasCredential,
+      (tester) async {
+        final service = SecureStorageService.withBiometrics(
+          biometricPromptTitle: 'apix device probe',
+          biometricPromptSubtitle: 'Staging a biometric-backed write',
+        );
+
+        // A satisfiable prompt blocks forever in an integration test, and that
+        // is itself the answer: the enforcement is active. Anything that returns
+        // fast is either a refusal or a silent no-op, and only the second is a
+        // defect.
+        Object? failure;
+        var completed = false;
+        try {
+          await service
+              .write('apix_probe_biometric', 'value')
+              .timeout(const Duration(seconds: 8));
+          completed = true;
+        } on TimeoutException {
+          report('withBiometrics → prompt is blocking: enforcement is ACTIVE');
+          return;
+        } catch (e) {
+          failure = e;
+        }
+
+        if (failure != null) {
+          report('withBiometrics → refused: $failure');
+          return;
+        }
+
+        // It returned. The only acceptable reading is that this device has an
+        // enrolled credential and the platform satisfied the prompt without UI —
+        // in which case the value must actually be there.
+        expect(completed, isTrue);
+        final readBack = await service
+            .read('apix_probe_biometric')
+            .timeout(const Duration(seconds: 8), onTimeout: () => null);
+
+        report('withBiometrics → wrote and read back: $readBack');
+        expect(
+          readBack,
+          'value',
+          reason:
+              'the write reported success, so the value has to exist. A '
+              'silent no-op is the one outcome that would make '
+              'SecureStorageService.withBiometrics() a factory that looks like '
+              'protection and is not.',
+        );
+
+        await service.delete('apix_probe_biometric');
+      },
+    );
   });
 }
 
