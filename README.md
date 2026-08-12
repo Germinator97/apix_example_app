@@ -283,10 +283,38 @@ flutter run
 ## Checks
 
 ```bash
-dart format --set-exit-if-changed lib test
-dart analyze --fatal-infos lib test
+dart format --set-exit-if-changed lib test integration_test
+dart analyze --fatal-infos lib test integration_test
 flutter test
 ```
+
+### Device probes
+
+`flutter test` does not run `integration_test/`. Those three files answer
+questions a mock cannot, so they need a real keystore:
+
+```bash
+# One device only: a phone plugged in beside the emulator silently wins.
+flutter devices
+flutter test integration_test/secure_storage_device_test.dart -d <id>
+flutter test integration_test/secure_storage_reset_on_error_device_test.dart -d <id>
+flutter test integration_test/secure_storage_biometric_device_test.dart -d <id>
+```
+
+Read the `DEVICE |` lines — they carry the verbatim platform messages, which is
+what these probes exist to collect.
+
+**One file, one configuration** — that is why there are three. The Android
+plugin binds a store's options on the **first** call for it and serves them to
+every later caller in silence, so two configurations in one process cannot both
+be measured: the second is exercised under the first's settings and reported
+under its own. Both failure modes have already happened here — a biometric probe
+reported a silent degradation that does not happen, and a `resetOnError: true`
+group reported the result of `false`.
+
+The split is also what keeps this off your session: the probes name their own
+preferences store, except the one test that deliberately exercises the bare
+constructor, which names none by definition. Nothing calls `deleteAll()`.
 
 ## API Used
 

@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:apix/apix.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -20,27 +23,54 @@ import 'package:integration_test/integration_test.dart';
 /// * **over-match** — sessions are wiped, indistinguishably from a normal
 ///   expiry.
 ///
-/// ## The question this was written to settle
+/// ## How the corruption is staged, and why the previous attempt could not be
 ///
-/// `AndroidOptions` defaults to **`resetOnError: true`**, and apix inherits
-/// that default. If the plugin resets the store itself, apix's recovery never
-/// sees an exception at all — and five substrings, a callback and twenty-five
-/// unit tests would be guarding a door that does not open on Android.
+/// The first version of this file wrote under one `keyCipherAlgorithm` and read
+/// under another. It never staged anything, and the reason is worth keeping:
+/// `FlutterSecureStorage.initialize()` on Android returns immediately when its
+/// `preferences` field is already set, so **the cipher is built once and every
+/// later call inherits it**. The read was decrypting with the very key that had
+/// encrypted it. No option changes that; only a fresh process does.
 ///
-/// ## What the first run measured — 11 Aug 2026, Android 16 emulator
+/// How far that reaches depends on the version, and both were measured:
 ///
-/// * The real round-trip works: the wrapper reaches the platform.
-/// * **The corruption staging does not stage.** Writing under one key cipher
-///   and reading under another with `migrateOnAlgorithmChange: false` returns
-///   the correct value, `resetOnError` either way — the plugin records the
-///   algorithm per entry. So the recovery question is still open, and those
-///   tests are skipped rather than red: what is defective is the trigger, not
-///   apix. See the note above the group for what is left to try.
-/// * **`withBiometrics()` degrades silently.** On a device with no lock screen
-///   and no enrolled biometric, `enforceBiometrics: true` wrote and read back
-///   with no prompt and no error — indistinguishable from the plain
-///   constructor. That is a platform behaviour apix cannot change, so what
-///   changed is the factory's documentation, which claimed enforcement flatly.
+/// * **10.0.0** (the declared floor) — one storage instance for the whole
+///   process. The first call fixes the preferences file and the cipher for
+///   everything; only the config is re-read per call, so `resetOnError` and the
+///   key prefix still follow each call.
+/// * **10.3.1** — the plugin keeps `storagesBySharedPreferencesName`, one
+///   instance per store name, and the early return now precedes storing the
+///   config. So the freeze is **per store**: the first call *for a given store*
+///   fixes its cipher, its `resetOnError` and its key prefix, and a storage
+///   naming a different store gets its own untouched instance.
+///
+/// What actually corrupts is reaching the bytes. `flutter_secure_storage` keeps
+/// every value as Base64 ciphertext inside an **ordinary, unencrypted**
+/// SharedPreferences file: the encryption protects the bytes, not the container.
+/// So the probe flips one byte of that ciphertext through a native channel
+/// (`apix.probe/prefs`, wired in `MainActivity.kt`) and asks apix to read it
+/// back. AES-GCM authenticates what it decrypts, so a single flipped byte is a
+/// genuine authentication failure — not a malformed input, which would raise
+/// something else entirely and prove nothing about the substrings.
+///
+/// ## The instance cache dictates the shape of this file
+///
+/// Because the first call wins, **every** `FlutterSecureStorage` here passes the
+/// same [probeStore] *and the same `resetOnError`*. Sharing a store while
+/// disagreeing on options means the loser is measured under the winner's
+/// settings and reported under its own — which is not a hypothetical: a group
+/// asserting `resetOnError: true` ran under a `false` established above it and
+/// reported `announced: 1` for a configuration that produces `announced: 0`.
+///
+/// So one file holds one configuration. `resetOnError: true` lives in
+/// `secure_storage_reset_on_error_device_test.dart`, and `withBiometrics()` in
+/// `secure_storage_biometric_device_test.dart` — the latter could never have
+/// been measured here, since its options would arrive after the cipher is
+/// built.
+///
+/// Nothing below calls `deleteAll()`, however isolated the probe store looks:
+/// one test deliberately exercises the bare constructor, which names no store
+/// and therefore may write beside the app's real session.
 ///
 /// ## Running it
 ///
@@ -55,35 +85,60 @@ import 'package:integration_test/integration_test.dart';
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  /// Every key this file writes. Isolation is by **key**, not by namespace:
-  /// `storageNamespace` does not exist at the floor of the range apix declares
-  /// (`flutter_secure_storage >=10.0.0`), and this app resolves that floor.
-  const probeKeys = ['apix_probe_token', 'apix_probe_biometric'];
+  /// The preferences file every storage in this file points at, and the prefix
+  /// the plugin puts in front of each key (`prefix + '_' + key`).
+  const probeStore = 'apix_probe_store';
+  const probePrefix = 'apix_probe';
 
-  /// **Never `deleteAll()`.** This runs against the device's real keychain,
-  /// beside the app's own session — a probe that wipes the store to clean up
-  /// after itself logs the user out to prove that logging the user out is
-  /// detectable.
-  Future<void> removeProbeKeys(FlutterSecureStorage storage) async {
-    for (final key in probeKeys) {
-      try {
-        await storage.delete(key: key);
-      } catch (_) {
-        // A key we cannot open is a key the recovery has already dropped.
-      }
-    }
+  const probeKey = 'token';
+  const storedKey = '${probePrefix}_$probeKey';
+  const probeValue = 'value-from-device';
+
+  /// Raw access to [probeStore], bypassing all encryption. See `MainActivity`.
+  const rawPrefs = MethodChannel('apix.probe/prefs');
+
+  Future<String?> rawRead(String file, String key) =>
+      rawPrefs.invokeMethod<String>('read', {'file': file, 'key': key});
+
+  Future<List<String>> rawKeys(String file) async {
+    final keys = await rawPrefs.invokeListMethod<String>('keys', {
+      'file': file,
+    });
+    return keys ?? const [];
   }
 
-  FlutterSecureStorage plain({
-    bool resetOnError = true,
-    KeyCipherAlgorithm keyCipher =
-        KeyCipherAlgorithm.RSA_ECB_OAEPwithSHA_256andMGF1Padding,
-  }) {
+  Future<void> rawWrite(String file, String key, String value) async {
+    final committed = await rawPrefs.invokeMethod<bool>('write', {
+      'file': file,
+      'key': key,
+      'value': value,
+    });
+    expect(
+      committed,
+      isTrue,
+      reason:
+          'the native channel reported that the commit did not land, so '
+          'nothing below is staged — this is the probe failing, not apix',
+    );
+  }
+
+  FlutterSecureStorage probeStorage({bool resetOnError = false}) {
     return FlutterSecureStorage(
+      // Passed identically everywhere: these options only bind on the first
+      // call for a given store, so a caller that disagrees is silently served
+      // the first caller's settings.
+      //
+      // `sharedPreferencesName` is deprecated from 10.3.0 in favour of
+      // `storageNamespace`, which isolates the KeyStore aliases too and would
+      // suit a probe better. It is kept because apix declares
+      // `>=10.0.0 <11.0.0` and the replacement does not exist at that floor —
+      // this file has to run against both bounds, which is the whole point of
+      // measuring them.
       aOptions: AndroidOptions(
         resetOnError: resetOnError,
-        migrateOnAlgorithmChange: false,
-        keyCipherAlgorithm: keyCipher,
+        // ignore: deprecated_member_use
+        sharedPreferencesName: probeStore,
+        preferencesKeyPrefix: probePrefix,
       ),
       iOptions: const IOSOptions(
         accessibility: KeychainAccessibility.first_unlock,
@@ -96,107 +151,151 @@ void main() {
     print('DEVICE | $line');
   }
 
-  tearDown(() async => removeProbeKeys(plain()));
+  /// Flips one byte of the ciphertext stored in [file] under [storedUnder].
+  ///
+  /// The write has to have happened already: which storage performed it, and
+  /// therefore where it landed, is the variable the callers differ on. Doing it
+  /// here would hide exactly that.
+  ///
+  /// Returns the corrupted Base64 so callers can prove the store changed.
+  Future<String> corruptStoredValue(String file, String storedUnder) async {
+    final stored = await rawRead(file, storedUnder);
+    expect(
+      stored,
+      isNotNull,
+      reason:
+          'a value was written through the plugin and is not in $file under '
+          '"$storedUnder". The staging is broken, and the usual cause is that '
+          'the write went to a different store than the one being read — the '
+          'plugin picks the store from options that only apply on the first '
+          'call for that store. List `keys` on both before hunting for a '
+          'defect in apix.',
+    );
+
+    // Java writes with Base64.DEFAULT, which wraps lines; Dart's decoder
+    // rejects the newlines it inserts.
+    final flat = stored!.replaceAll(RegExp(r'\s'), '');
+    final bytes = base64.decode(flat);
+
+    // One byte, in the middle of the ciphertext. GCM authenticates the whole
+    // message, so this is a tag mismatch however small the edit — and a small
+    // edit keeps the value structurally valid Base64 of a plausible length,
+    // which a truncation or a random blob would not.
+    bytes[bytes.length ~/ 2] ^= 0xFF;
+
+    final corrupted = base64.encode(bytes);
+    await rawWrite(file, storedUnder, corrupted);
+
+    final readBack = await rawRead(file, storedUnder);
+    expect(
+      readBack,
+      corrupted,
+      reason:
+          'the corrupted value did not survive the round-trip to the '
+          'preferences file, so the staging did not stage',
+    );
+    expect(
+      readBack,
+      isNot(flat),
+      reason: 'the stored ciphertext is unchanged: nothing was corrupted',
+    );
+
+    return corrupted;
+  }
+
+  /// **Never `deleteAll()`.** If the instance cache ever defeated the probe
+  /// store, this runs against the device's real keychain beside the app's own
+  /// session — and a probe that logs the user out to prove that logging the
+  /// user out is detectable has stopped being a probe.
+  tearDown(() async {
+    try {
+      await probeStorage().delete(key: probeKey);
+    } catch (_) {
+      // A key we cannot open is a key the recovery has already dropped.
+    }
+  });
 
   group('the real platform round-trips', () {
     testWidgets('write, read, containsKey, readAll, delete', (tester) async {
-      final service = SecureStorageService(storage: plain());
+      final service = SecureStorageService(storage: probeStorage());
 
-      await service.write('apix_probe_token', 'value-from-device');
+      await service.write(probeKey, probeValue);
       expect(
-        await service.read('apix_probe_token'),
-        'value-from-device',
+        await service.read(probeKey),
+        probeValue,
         reason:
             'if this fails, nothing below means anything — the wrapper is '
             'not reaching the platform at all',
       );
-      expect(await service.containsKey('apix_probe_token'), isTrue);
-      expect(
-        (await service.readAll())['apix_probe_token'],
-        'value-from-device',
-        reason:
-            "asserted by lookup, never by length: the app's own session "
-            'lives in this same store',
-      );
+      expect(await service.containsKey(probeKey), isTrue);
+      expect((await service.readAll())[probeKey], probeValue);
 
-      await service.delete('apix_probe_token');
-      expect(await service.read('apix_probe_token'), isNull);
-      expect(await service.containsKey('apix_probe_token'), isFalse);
+      await service.delete(probeKey);
+      expect(await service.read(probeKey), isNull);
+      expect(await service.containsKey(probeKey), isFalse);
 
-      // `deleteAll()` is deliberately not exercised. It is the one call in this
-      // API that would take the app's real session with it, and a probe that
-      // logs the user out to demonstrate that logging the user out is
-      // detectable has stopped being a probe.
       report('round-trip OK on ${defaultTargetPlatform.name}');
     });
 
+    testWidgets('the probe store is where the bytes actually land', (
+      tester,
+    ) async {
+      await probeStorage().write(key: probeKey, value: probeValue);
+
+      final keysHere = await rawKeys(probeStore);
+      final keysDefault = await rawKeys('FlutterSecureStorage');
+
+      report('$probeStore holds ${keysHere.length} key(s): $keysHere');
+      report('default store holds ${keysDefault.length} key(s)');
+
+      expect(
+        keysHere,
+        contains(storedKey),
+        reason:
+            'the whole file assumes sharedPreferencesName took effect. It only '
+            'does on the first plugin call of the process, so if this fails '
+            'every write here is landing in the app\'s real store and the '
+            'corruption tests are editing someone\'s session.',
+      );
+      expect(
+        keysDefault,
+        isNot(contains(storedKey)),
+        reason: 'the probe key must exist in exactly one store',
+      );
+    });
+
     testWidgets('an absent key is a miss, not a throw', (tester) async {
-      final service = SecureStorageService(storage: plain());
+      final service = SecureStorageService(storage: probeStorage());
       expect(await service.read('apix_probe_never_written'), isNull);
     });
   });
 
-  // MEASURED 11 Aug 2026, Android 16 emulator, flutter_secure_storage 10.0.0:
-  // **this staging does not stage.** Writing under RSA key wrapping and reading
-  // under AES_GCM with `migrateOnAlgorithmChange: false` returned the correct
-  // value, with `resetOnError` both true and false. The plugin evidently
-  // records the algorithm per entry and decrypts with the one that was used, so
-  // asking for a different one on read is not corruption — it is a request the
-  // plugin ignores.
-  //
-  // The two tests below are therefore skipped rather than left red: red would
-  // report a defect in apix, and what is defective is the trigger. They are
-  // kept, not deleted, because the question they ask is still open and still
-  // the most valuable one on this component — does apix's recovery ever fire
-  // on a real corruption, and does the message match the five substrings?
-  //
-  // What is left to try, in order of cost:
-  //   1. overwrite the stored ciphertext directly, via `sharedPreferencesName`
-  //      + `preferencesKeyPrefix` and a second prefs plugin;
-  //   2. `adb shell run-as … sed` on the prefs XML, which needs the run to
-  //      pause mid-test since `flutter test` uninstalls the app afterwards;
-  //   3. a genuine Android Auto Backup restore, which is the real-world cause:
-  //      encrypted prefs are backed up, keystore keys are not.
-  const stagingWorks = false;
-
   group('what the platform really throws when it cannot decrypt', () {
-    /// Writes under one key cipher, then reads under another with migration
-    /// off — a genuine decryption failure, staged from Dart.
-    Future<Object?> stageCorruptionAndRead({required bool resetOnError}) async {
-      await plain(
-        keyCipher: KeyCipherAlgorithm.RSA_ECB_OAEPwithSHA_256andMGF1Padding,
-      ).write(key: 'apix_probe_token', value: 'value-from-device');
+    testWidgets('captured verbatim, with resetOnError off', (tester) async {
+      await probeStorage().write(key: probeKey, value: probeValue);
+      await corruptStoredValue(probeStore, storedKey);
 
-      final rotated = plain(
-        resetOnError: resetOnError,
-        keyCipher: KeyCipherAlgorithm.AES_GCM_NoPadding,
-      );
+      Object? thrown;
+      String? returned;
       try {
-        final value = await rotated.read(key: 'apix_probe_token');
-        return _NoThrow(value);
+        returned = await probeStorage(resetOnError: false).read(key: probeKey);
       } catch (e) {
-        return e;
+        thrown = e;
       }
-    }
 
-    testWidgets('captured verbatim, with resetOnError off', skip: !stagingWorks, (
-      tester,
-    ) async {
-      final outcome = await stageCorruptionAndRead(resetOnError: false);
-
-      if (outcome is _NoThrow) {
-        report('resetOnError:false → NO THROW, read gave ${outcome.value}');
+      if (thrown == null) {
+        report('resetOnError:false → NO THROW, read gave $returned');
         fail(
-          'The corruption was staged and the platform did not raise. Either '
-          'the staging no longer produces a decryption failure — in which case '
-          'THIS TEST is what needs fixing, not the code — or the plugin now '
-          'recovers even with resetOnError off, which would make apix\'s own '
-          'recovery unreachable on this platform.',
+          'One byte of the stored ciphertext was flipped and the platform did '
+          'not raise. Either the staging no longer produces a decryption '
+          'failure — in which case THIS PROBE is what needs fixing, not apix — '
+          'or the plugin now recovers even with resetOnError off, which would '
+          "make apix's own recovery unreachable on this platform.",
         );
       }
 
-      final message = outcome.toString();
-      report('resetOnError:false → ${outcome.runtimeType}: $message');
+      final message = thrown.toString();
+      report('resetOnError:false → ${thrown.runtimeType}: $message');
 
       // The five substrings apix matches on. Named here rather than imported:
       // this test exists to check them against reality, so reading them from
@@ -217,8 +316,8 @@ void main() {
         matched,
         isNotEmpty,
         reason:
-            'apix deletes a credential when it recognises this message, '
-            'and recognises none of it. Every unit test around '
+            'apix deletes a credential when it recognises this message, and '
+            'recognises none of it. Every unit test around '
             '_isBadPaddingException passes while the door never opens: a real '
             'corruption would rethrow a raw platform exception where the '
             'contract promises null. Add the real substring above to '
@@ -227,183 +326,148 @@ void main() {
       );
     });
 
-    testWidgets(
-      'and apix therefore recovers, and says so',
-      skip: !stagingWorks,
-      (tester) async {
-        final announced = <SecureStorageRecovery>[];
+    testWidgets('and apix therefore recovers, and says so', (tester) async {
+      await probeStorage().write(key: probeKey, value: probeValue);
+      await corruptStoredValue(probeStore, storedKey);
 
-        await plain(
-          keyCipher: KeyCipherAlgorithm.RSA_ECB_OAEPwithSHA_256andMGF1Padding,
-        ).write(key: 'apix_probe_token', value: 'value-from-device');
+      final announced = <SecureStorageRecovery>[];
+      final service = SecureStorageService(
+        storage: probeStorage(resetOnError: false),
+        onBeforeRecoveryDelete: announced.add,
+      );
 
-        final service = SecureStorageService(
-          storage: plain(
-            resetOnError: false,
-            keyCipher: KeyCipherAlgorithm.AES_GCM_NoPadding,
-          ),
-          onBeforeRecoveryDelete: announced.add,
-        );
+      final value = await service.read(probeKey);
 
-        final value = await service.read('apix_probe_token');
+      report('apix read → $value · announced ${announced.length} recovery');
 
-        report('apix read → $value · announced ${announced.length} recovery');
+      expect(
+        value,
+        isNull,
+        reason:
+            'the contract is that an unreadable entry is a miss, never a '
+            'throw — this is the end-to-end version of the assertion above',
+      );
+      expect(
+        announced,
+        hasLength(1),
+        reason:
+            'the channel a consumer asked for has to fire on the real '
+            'trigger, not only on the mocked one',
+      );
+      expect(announced.single.operation, SecureStorageOperation.read);
+      expect(announced.single.key, probeKey);
+      expect(announced.single.isFullWipe, isFalse);
+    });
 
-        expect(
-          value,
-          isNull,
-          reason:
-              'the contract is that an unreadable entry is a miss, never a '
-              'throw — this is the end-to-end version of the assertion above',
-        );
-        expect(
-          announced,
-          hasLength(1),
-          reason:
-              'the channel a consumer asked for has to fire on the real '
-              'trigger, not only on the mocked one',
-        );
-        expect(announced.single.operation, SecureStorageOperation.read);
-        expect(announced.single.key, 'apix_probe_token');
-        expect(announced.single.isFullWipe, isFalse);
-      },
-    );
+    testWidgets('the constructor a consumer actually calls announces too', (
+      tester,
+    ) async {
+      // Every assertion above injects a storage this file built, so all of
+      // them would keep passing if SecureStorageService's own default went
+      // back to the plugin's `resetOnError: true` — the code under test would
+      // never be reached. This is the one that exercises the default, and it
+      // is the reason the default was changed.
+      //
+      // ⚠️ This one cannot be isolated, and that is not an oversight: a bare
+      // constructor names no store, so wherever it writes IS the measurement.
+      // Which store that is depends on the plugin version — at the floor a
+      // single instance serves the whole process, so it inherits the probe
+      // store; from 10.3.0 the plugin keeps one instance per store name and the
+      // bare constructor gets the real, default one. Both were measured.
+      //
+      // So both the store and the key are derived rather than spelled out, and
+      // the key is deliberately unlike anything an app would store, since on
+      // half the versions this runs beside the real session. Nothing here
+      // deletes more than the one entry it created.
+      const bareKey = 'apix_bare_constructor_probe';
 
-    testWidgets(
-      'resetOnError:true — does apix ever see the failure?',
-      skip: !stagingWorks,
-      (tester) async {
-        // apix's own default. If the plugin absorbs the corruption here, the
-        // recovery path is unreachable in the configuration consumers get out of
-        // the box — which is worth knowing even though it is not a failure.
-        final outcome = await stageCorruptionAndRead(resetOnError: true);
+      final announced = <SecureStorageRecovery>[];
+      final service = SecureStorageService(
+        onBeforeRecoveryDelete: announced.add,
+      );
 
-        if (outcome is _NoThrow) {
-          report(
-            'resetOnError:true → plugin absorbed it, read gave '
-            '${outcome.value} — apix\'s recovery never runs in this config',
-          );
-        } else {
-          report('resetOnError:true → still throws: $outcome');
-        }
+      await service.write(bareKey, probeValue);
 
-        // Deliberately no assertion: both outcomes are legitimate, and pinning
-        // the one observed today would freeze a plugin behaviour apix does not
-        // own. The `DEVICE |` line is the deliverable.
-      },
-    );
+      const candidateStores = [probeStore, 'FlutterSecureStorage'];
+      final landed = <({String store, String key})>[
+        for (final store in candidateStores)
+          for (final key in await rawKeys(store))
+            if (key.endsWith('_$bareKey')) (store: store, key: key),
+      ];
+
+      report('bare write landed in: $landed');
+
+      expect(
+        landed,
+        hasLength(1),
+        reason:
+            'expected the bare constructor to write exactly one entry ending '
+            'in "_$bareKey" across $candidateStores, found $landed. None means '
+            'it wrote somewhere this probe does not look; more than one means '
+            'a previous run left an entry behind, and corrupting the wrong one '
+            'would prove nothing.',
+      );
+
+      await corruptStoredValue(landed.single.store, landed.single.key);
+
+      Object? thrown;
+      String? value;
+      try {
+        value = await service.read(bareKey);
+      } catch (e) {
+        thrown = e;
+      }
+
+      report(
+        'bare constructor → value=$value thrown=$thrown '
+        'announced=${announced.length}',
+      );
+
+      expect(
+        thrown,
+        isNull,
+        reason: 'a corrupted entry must not surface as an exception',
+      );
+      expect(
+        value,
+        isNull,
+        reason:
+            'nor as a value. A non-null answer means the plugin handed back '
+            'one of its own status strings — FlutterSecureStoragePlugin '
+            'returns the literal "Data has been reset" on some paths — which '
+            'apix would pass off as a token.',
+      );
+      expect(
+        announced,
+        hasLength(1),
+        reason:
+            'the default configuration destroyed a credential without '
+            'telling anyone. That is what resetOnError: false exists to '
+            'prevent: under the plugin default this list is empty, every '
+            'other test here still passes, and the a review point channel is dead for '
+            'everyone who did not configure their way out of it.',
+      );
+      expect(announced.single.key, bareKey);
+      expect(announced.single.isFullWipe, isFalse);
+
+      await service.delete(bareKey);
+    });
+
+    // The `resetOnError: true` counterpart — what a consumer who opts back into
+    // the plugin's own default gets — lived here until 12 Aug 2026. It cannot:
+    // from plugin 10.3.0 the first call of the process fixes resetOnError for
+    // every later one, so a second configuration in the same file measures the
+    // first one and reports it as the second. It reported `announced: 1` for a
+    // configuration that produces `announced: 0`.
+    //
+    // It now has its own process, in secure_storage_reset_on_error_device_test
+    // .dart. One file, one configuration — the same rule that split the
+    // biometric probe off.
+    testWidgets('an absent key is still a miss after all this', (tester) async {
+      expect(
+        await SecureStorageService(storage: probeStorage()).read('nope'),
+        isNull,
+      );
+    });
   });
-
-  /// Whether this device has a lock screen or an enrolled biometric. Passed
-  /// in rather than detected: Dart cannot see it, and a probe that guesses the
-  /// state it is measuring against is measuring nothing.
-  ///
-  /// ```bash
-  /// adb shell locksettings get-disabled          # true → no credential
-  /// adb shell dumpsys fingerprint | grep -i enrolled
-  /// flutter test integration_test/secure_storage_device_test.dart \
-  ///   -d <id> --dart-define=APIX_DEVICE_HAS_CREDENTIAL=true
-  /// ```
-  const hasCredential = bool.fromEnvironment('APIX_DEVICE_HAS_CREDENTIAL');
-
-  group('withBiometrics is more than a constructor', () {
-    testWidgets(
-      'it degrades silently when there is nothing to prompt for '
-      '(skipped on a device that has a credential)',
-      skip: hasCredential,
-      (tester) async {
-        final service = SecureStorageService.withBiometrics();
-
-        await service
-            .write('apix_probe_biometric', 'value')
-            .timeout(const Duration(seconds: 8));
-        final readBack = await service.read('apix_probe_biometric');
-
-        report('withBiometrics, no credential → read back: $readBack');
-
-        // Pinning the degradation, not the protection — that is what actually
-        // happens, and a consumer has to know it. The failure this guards is
-        // the opposite one: the day a plugin release starts enforcing, this
-        // goes red and the documentation promising degradation is what needs
-        // updating.
-        expect(
-          readBack,
-          'value',
-          reason:
-              'apix documents that withBiometrics() degrades silently on a '
-              'device with nothing to enforce against. If this fails, the '
-              'platform has started enforcing, and that documentation — and '
-              'this expectation — are what need to change.',
-        );
-
-        await service.delete('apix_probe_biometric');
-      },
-    );
-
-    testWidgets(
-      'an enforced write does not silently succeed without auth '
-      '(needs a lock screen or an enrolled biometric)',
-      skip: !hasCredential,
-      (tester) async {
-        final service = SecureStorageService.withBiometrics(
-          biometricPromptTitle: 'apix device probe',
-          biometricPromptSubtitle: 'Staging a biometric-backed write',
-        );
-
-        // A satisfiable prompt blocks forever in an integration test, and that
-        // is itself the answer: the enforcement is active. Anything that returns
-        // fast is either a refusal or a silent no-op, and only the second is a
-        // defect.
-        Object? failure;
-        var completed = false;
-        try {
-          await service
-              .write('apix_probe_biometric', 'value')
-              .timeout(const Duration(seconds: 8));
-          completed = true;
-        } on TimeoutException {
-          report('withBiometrics → prompt is blocking: enforcement is ACTIVE');
-          return;
-        } catch (e) {
-          failure = e;
-        }
-
-        if (failure != null) {
-          report('withBiometrics → refused: $failure');
-          return;
-        }
-
-        // It returned. The only acceptable reading is that this device has an
-        // enrolled credential and the platform satisfied the prompt without UI —
-        // in which case the value must actually be there.
-        expect(completed, isTrue);
-        final readBack = await service
-            .read('apix_probe_biometric')
-            .timeout(const Duration(seconds: 8), onTimeout: () => null);
-
-        report('withBiometrics → wrote and read back: $readBack');
-        expect(
-          readBack,
-          'value',
-          reason:
-              'the write reported success, so the value has to exist. A '
-              'silent no-op is the one outcome that would make '
-              'SecureStorageService.withBiometrics() a factory that looks like '
-              'protection and is not.',
-        );
-
-        await service.delete('apix_probe_biometric');
-      },
-    );
-  });
-}
-
-/// Marks "the read returned instead of throwing", so the two cases stay
-/// distinguishable when the returned value is itself `null`.
-class _NoThrow {
-  const _NoThrow(this.value);
-  final String? value;
-
-  @override
-  String toString() => '_NoThrow($value)';
 }
