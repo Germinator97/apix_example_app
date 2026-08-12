@@ -444,7 +444,7 @@ void main() {
             'the default configuration destroyed a credential without '
             'telling anyone. That is what resetOnError: false exists to '
             'prevent: under the plugin default this list is empty, every '
-            'other test here still passes, and the a review point channel is dead for '
+            'other test here still passes, and that channel is dead for '
             'everyone who did not configure their way out of it.',
       );
       expect(announced.single.key, bareKey);
