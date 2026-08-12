@@ -164,7 +164,7 @@ Future<ProbeOutcome> _statusIsNotACode() async {
           : 'code=null, statusCode=${e.statusCode} — the status stayed where '
                 'it belongs',
       detail:
-          'This envelope is the one a consumer actually returns. Read as-is it '
+          'This envelope is one a real backend actually returns. Read as-is it '
           'made a switch (e.code) look like business logic while keying on a '
           'status that drifts between server revisions. A real code (4001 '
           'under a 400) still comes through.',
