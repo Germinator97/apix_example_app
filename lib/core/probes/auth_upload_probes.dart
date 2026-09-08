@@ -41,7 +41,65 @@ List<DemoProbe> authUploadProbes() => [
     label: 'A FormData replay says why',
     run: _formDataReplayIsNamed,
   ),
+  DemoProbe(
+    id: 'auth.dead_store_is_not_a_dead_entry',
+    theme: ProbeTheme.authUploads,
+    label: 'A dead store is not a dead entry',
+    run: _deadStoreIsNotADeadEntry,
+  ),
 ];
+
+/// The message a consumer captured on Android API 30, plugin 10.3.1, after
+/// clearing app data while the Keystore key outlived the preferences.
+const _capturedOnDevice =
+    'PlatformException(Exception encountered, Migration failed after algorithm '
+    'change (Algorithm changed detected). Enable resetOnError=true or call '
+    'deleteAll()., Caused by: javax.crypto.IllegalBlockSizeException: '
+    'error:1e00007b:Cipher functions:OPENSSL_internal:WRONG_FINAL_BLOCK_LENGTH)';
+
+/// The trap: a dead store whose message contains the words `Bad padding`.
+const _theTrap =
+    'Key mismatch after algorithm change (Bad padding, wrong key for cipher '
+    'algorithm). Enable migrateOnAlgorithmChange=true to preserve data, or '
+    'resetOnError=true to delete.';
+
+/// Two failures, one exception type, opposite reactions.
+///
+/// `flutter_secure_storage` reports both as a `PlatformException` with the same
+/// `code: 'Exception encountered'`, so the only discriminator is a substring of
+/// the message — and the message for a dead *store* can itself contain the
+/// words a dead *entry* is recognised by. Classifying the second as the first
+/// takes a deletion the plugin cannot run: every method goes through a
+/// successful `initialize`, deletion included.
+Future<ProbeOutcome> _deadStoreIsNotADeadEntry() async {
+  final captured = SecureStorageService.classify(Exception(_capturedOnDevice));
+  final trap = SecureStorageService.classify(Exception(_theTrap));
+  final corrupt = SecureStorageService.classify(
+    Exception(
+      'javax.crypto.AEADBadTagException: '
+      'error:1e000065:Cipher functions:OPENSSL_internal:BAD_DECRYPT',
+    ),
+  );
+  final offline = SecureStorageService.classify(
+    Exception('SocketException: Failed host lookup: demo.apix'),
+  );
+
+  return ProbeOutcome(
+    headline:
+        'captured=${captured.name} · trap=${trap.name} · '
+        'corrupt=${corrupt.name} · offline=${offline.name}',
+    detail:
+        'The first two are storeUnusable: apix rethrows, deletes nothing, and '
+        'answers no null — there is nothing a deletion could reach. The trap '
+        'is the one that matters: it carries "Bad padding" inside its '
+        'parentheses, and used to be taken for a corrupted entry. The third is '
+        'a real corruption measured on an emulator, still recovered by '
+        'dropping the key. The fourth is neither, and never a reason to log '
+        'anyone out. On storeUnusable, retry once: when the cause is missing '
+        'algorithm markers the plugin repairs them as it fails, so the next '
+        'call goes through — a second failure is permanent.',
+  );
+}
 
 /// Upload through a typed method while watching the bytes go out.
 Future<ProbeOutcome> _typedUploadProgress() async {
