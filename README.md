@@ -112,6 +112,28 @@ The simplified refresh flow is configured in `ApiClientProvider`: a
 `refreshEndpoint` plus `onTokenRefreshed` to persist, and `onAuthFailure` to
 clear the session and report to Sentry.
 
+**Two ways that store fails, and they need opposite reactions.** When one
+entry's bytes no longer decrypt, apix drops that key and answers `null` — the
+right call, since undecryptable bytes never become readable. When the store's
+*own* key is unusable, nothing in it can be read, written **or deleted** through
+the plugin, so apix rethrows rather than announcing a purge that cannot happen.
+`SecureStorageService.classify` returns which one you are looking at:
+
+```dart
+if (SecureStorageService.classify(e) == SecureStorageFailure.storeUnusable) {
+  // Nothing to purge. Retry once; treat a second failure as permanent.
+}
+```
+
+The trap is that the plugin reports both as a `PlatformException` with the same
+`code`, and its message for a dead store can itself contain the words
+`Bad padding`. The **🔐 Auth & uploads** probe *"A dead store is not a dead
+entry"* runs the four shapes side by side — including the message a consumer
+captured on a real device — so the difference is visible rather than asserted.
+
+`onBeforeRecoveryDelete` is wired the same way: it fires **before** apix deletes
+anything, which is the only moment a purge can be reported at all.
+
 ### 3. Retry — method-aware since apix 2.3.0 (`lib/core/services/retry_policy_demo_client.dart`)
 
 Retry combines exponential backoff, `Retry-After`, **and** an idempotency
