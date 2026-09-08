@@ -12,8 +12,16 @@ android {
     // package_info_plus — require them. Flutter only warns and builds anyway,
     // so the mismatch is invisible until a toolchain that lacks the older NDK
     // has to resolve it. Both are backward compatible.
+    //
+    // The NDK moved from 27.0.12077973 in September 2026, and the reason is
+    // worth keeping: those plugins do not name a version, they say
+    // `ndkVersion flutter.ndkVersion` — so what they ask for is whatever the
+    // SDK building them defaults to. That default went 26.3.11579264 (Flutter
+    // 3.32) → 28.2.13676358 (3.41), and a pin chosen above the first sits
+    // below the second. This value therefore has to be raised with the SDK,
+    // not set once; a warning here means it is behind again.
     compileSdk = 36
-    ndkVersion = "27.0.12077973"
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
