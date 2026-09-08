@@ -28,10 +28,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
 
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
-    }
-
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.apix_example_app"
@@ -53,6 +49,16 @@ android {
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
         }
+    }
+}
+
+// Was `android { kotlinOptions { jvmTarget = JavaVersion.VERSION_11.toString() } }`.
+// From Kotlin 2.3 the string-typed setter is an error, not a deprecation, and
+// the typed DSL lives on the project's `kotlin` extension rather than inside
+// `android`. Same JVM 11 target as compileOptions above — a change of spelling.
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
     }
 }
 
