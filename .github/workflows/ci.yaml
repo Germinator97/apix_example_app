@@ -22,16 +22,28 @@ name: CI
 # here after a package change is the signal, not a nuisance.
 #
 # Flutter is pinned: the app requires Dart SDK ^3.8.0, i.e. Flutter >= 3.32.
+# Pinned everywhere but `build-stable`, which exists because a pin cannot see
+# the toolchain move.
+#
+# develop only, like the package: master receives nothing but release merges of
+# develop, with the tree develop's run has already tested. And once a week, so
+# drift shows up here even when nobody pushes.
 
 on:
   push:
-    branches: [develop, master]
+    branches: [develop]
   pull_request:
-    branches: [develop, master]
+    branches: [develop]
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
 
 env:
   FLUTTER_VERSION: '3.32.0'
   APIX_REF: develop
+  # A scheduled run starts from the default branch, master: check this app out
+  # from develop instead, next to the apix develop it is built against.
+  SOURCE_REF: ${{ github.event_name == 'schedule' && 'develop' || github.ref }}
 
 jobs:
   format:
@@ -43,6 +55,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ env.SOURCE_REF }}
           path: apix_example_app
 
       - uses: subosito/flutter-action@v2
@@ -64,6 +77,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ env.SOURCE_REF }}
           path: apix_example_app
 
       - uses: actions/checkout@v5
@@ -93,6 +107,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ env.SOURCE_REF }}
           path: apix_example_app
 
       - uses: actions/checkout@v5
@@ -126,6 +141,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ env.SOURCE_REF }}
           path: apix_example_app
 
       - uses: actions/checkout@v5
@@ -150,8 +166,55 @@ jobs:
 
       # No --dart-define=SENTRY_DSN here: main.dart falls back to an empty DSN
       # and disables Sentry, so the build must not need a secret.
-      - name: Build debug APK
-        run: flutter build apk --debug
+      #
+      # Release, not debug: only the mode that ships runs R8, so only it can
+      # fail on a missing shrinking rule — and a failure nothing builds waits
+      # for the release to show up.
+      - name: Build release APK
+        run: flutter build apk --release
+
+  build-stable:
+    # The same build on today's Flutter stable, unpinned. Every other job pins
+    # 3.32.0, and a pin cannot see Flutter raise its Android floors: Gradle
+    # 8.12, AGP 8.7.3 and NDK 27.0 aged here for months, green, until the
+    # package's own unpinned job found them. This is how this repository
+    # notices on its own. A job of its own rather than a matrix on `build`:
+    # an axis would rename that job, and required checks go by name.
+    #
+    # The committed lock is resolved, not enforced: it pins the SDK's own
+    # packages to 3.32.0's, and a newer SDK has to move them.
+    name: Build APK (stable)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apix_example_app
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SOURCE_REF }}
+          path: apix_example_app
+
+      - uses: actions/checkout@v5
+        with:
+          repository: Germinator97/apix
+          ref: ${{ env.APIX_REF }}
+          path: apix
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build release APK
+        run: flutter build apk --release
 
   lockfile:
     # Reported separately from analyze/test so a dependency drift reads as a
@@ -167,6 +230,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ env.SOURCE_REF }}
           path: apix_example_app
 
       - uses: actions/checkout@v5
