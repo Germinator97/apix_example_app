@@ -243,6 +243,11 @@ every other `4xx` to `ClientException` and every `5xx` to `ServerException`, so
 `on ClientException` / `on ServerException` are usable for whole-category
 handling.
 
+A download fails the same way. The **⚠️ Errors** probe *"A download's JSON
+error keeps its code"* asks for bytes and gets a `400` whose body is JSON:
+apix reads its `message` and `code` all the same, where a failed download
+used to report `HTTP 400` and nothing else.
+
 ### 6. Envelope API (`lib/core/services/envelope_demo_client.dart`)
 
 `{"payload": ...}` responses unwrapped by the `*Data` family:
@@ -261,6 +266,12 @@ Four failure modes, each surfaced as a typed exception:
 | `/throttled` (`503` + `Retry-After: 1`) | succeeds after honouring the header |
 
 Plus a deliberately broken `TokenProvider` to raise `TokenProviderException`.
+
+A file comes back typed as well: the **📥 Requests & responses** probe
+*"Download a file, with its headers"* calls `getAndReadBytes` and shows the
+bytes intact, the file name read from `filename*` and a business header — the
+three things a raw `get<List<int>>` left each caller to dig out, next to a dio
+`Response` in its data layer.
 
 ### 8. Error tracking (`lib/core/services/api_client_provider.dart`)
 
@@ -359,6 +370,7 @@ apix_example_app/
 │   │   │   ├── demo_probe.dart              # ProbeTheme + DemoProbe
 │   │   │   ├── probe_registry.dart          # every probe, one list
 │   │   │   ├── scripted_adapter.dart        # one fake transport for all
+│   │   │   ├── request_probes.dart          # 📥
 │   │   │   ├── cache_probes.dart            # 💾
 │   │   │   ├── auth_upload_probes.dart      # 🔐
 │   │   │   ├── error_probes.dart            # ⚠️

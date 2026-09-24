@@ -12,8 +12,10 @@
 /// on the same screen, which is exactly the sort of split a reader has to hold
 /// in their head for no reason.
 ///
-/// [requests] carries no probes: it is where the plain CRUD and envelope
-/// features live. A theme with nothing in it simply renders no section.
+/// [requests] is where the plain CRUD and envelope features live, hand-written
+/// on the screen; its probes pin what those buttons cannot show, such as a
+/// file downloaded with its headers. A theme with nothing in it simply renders
+/// no section.
 enum ProbeTheme {
   requests('📥', 'Requests & responses'),
   cache('💾', 'Cache'),

@@ -6,6 +6,7 @@ import 'cache_probes.dart';
 import 'demo_probe.dart';
 import 'error_probes.dart';
 import 'observability_probes.dart';
+import 'request_probes.dart';
 import 'retry_probes.dart';
 
 /// Every demonstration the app can run, grouped by theme.
@@ -20,6 +21,7 @@ class ProbeRegistry {
     required ErrorTrackingDemoClient tracking,
     required RobustnessDemoClient robustness,
   }) : all = [
+         ...requestProbes(),
          ...cacheProbes(),
          ...authUploadProbes(),
          ...errorProbes(robustness),

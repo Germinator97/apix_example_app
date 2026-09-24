@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:apix/apix.dart';
 import 'package:apix/testing.dart';
@@ -22,7 +23,8 @@ class ScriptedAdapter implements HttpClientAdapter {
   ScriptedAdapter(this.respond);
 
   /// Builds the body for a request. Throw [Unauthorized] to answer `401`, or
-  /// return a [ScriptedResponse] to control the status and headers.
+  /// return a [ScriptedResponse] to control the status and headers. A
+  /// `Uint8List` body is sent as raw bytes; anything else as JSON.
   final Object? Function(RequestOptions options) respond;
 
   /// How many requests reached the adapter.
@@ -72,6 +74,11 @@ class ScriptedAdapter implements HttpClientAdapter {
     int statusCode,
     Map<String, List<String>> headers,
   ) {
+    // Raw bytes — a file — go out untouched, under the headers the script
+    // names: JSON-encoding them would turn a PDF into a list of numbers.
+    if (body is Uint8List) {
+      return ResponseBody.fromBytes(body, statusCode, headers: headers);
+    }
     return ResponseBody.fromBytes(
       utf8.encode(jsonEncode(body)),
       statusCode,

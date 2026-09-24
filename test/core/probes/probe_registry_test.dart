@@ -54,19 +54,16 @@ void main() {
       expect(rendered, hasLength(registry.all.length));
     });
 
-    test('every theme except requests carries probes', () {
+    test('every theme carries probes', () {
       // Not a count of probes — a count of themes. If a theme empties out, the
       // taxonomy has drifted and that is worth a decision, not a silent gap.
       //
-      // `requests` is the deliberate exception: it holds the live CRUD and
-      // envelope features, which are hand-written on the screen and have no
-      // probe of their own. Naming it here means the day it *does* get one, or
-      // the day another theme loses its last probe, this test says so.
-      expect(
-        registry.themes.toSet(),
-        ProbeTheme.values.toSet()..remove(ProbeTheme.requests),
-      );
-      expect(registry.byTheme(ProbeTheme.requests), isEmpty);
+      // `requests` used to be the deliberate exception, its live CRUD and
+      // envelope features being hand-written on the screen. It gained a probe
+      // the day a download had to show what no button could — the file's
+      // bytes with their headers — and this test is where that decision was
+      // taken rather than slipped in.
+      expect(registry.themes.toSet(), ProbeTheme.values.toSet());
     });
 
     test('byId finds a known probe and refuses an unknown one', () {
@@ -149,6 +146,20 @@ void main() {
       final headline = await headlineOf('errors.business_failure_in_200');
       expect(headline, isNot(contains('REGRESSION')));
       expect(headline, contains('success=false'));
+    });
+
+    test('requests — a download keeps its bytes and headers', () async {
+      final headline = await headlineOf('requests.binary_download');
+      expect(headline, isNot(contains('REGRESSION')));
+      expect(headline, contains('résumé-2026-08.pdf'));
+      expect(headline, contains('bytes intact'));
+      expect(headline, contains('x-page-count=12'));
+    });
+
+    test('errors — a download\'s JSON error keeps its code', () async {
+      final headline = await headlineOf('errors.json_error_on_download');
+      expect(headline, isNot(contains('REGRESSION')));
+      expect(headline, contains('code=EXPORT_TOO_LARGE'));
     });
 
     test('errors — a bare [] is an empty list', () async {

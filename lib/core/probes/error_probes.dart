@@ -34,6 +34,12 @@ List<DemoProbe> errorProbes(RobustnessDemoClient robustness) => [
     run: _businessFailureIn200,
   ),
   DemoProbe(
+    id: 'errors.json_error_on_download',
+    theme: ProbeTheme.errors,
+    label: 'A download\'s JSON error keeps its code',
+    run: _jsonErrorOnDownload,
+  ),
+  DemoProbe(
     id: 'errors.bare_array',
     theme: ProbeTheme.errors,
     label: 'A bare [] is an empty list',
@@ -135,6 +141,36 @@ Future<ProbeOutcome> _applicationErrorCode() async {
       detail:
           'HTTP ${e.statusCode} — the status could drift, the code will not. '
           'Before 4.0.0 this meant digging through responseBody by hand.',
+    );
+  }
+}
+
+Future<ProbeOutcome> _jsonErrorOnDownload() async {
+  final client = ApiClientFactory.create(
+    baseUrl: 'https://demo.apix',
+    httpClientAdapter: ScriptedAdapter(
+      (options) => const ScriptedResponse({
+        'code': 'EXPORT_TOO_LARGE',
+        'message': 'Export trop volumineux : réduisez la sélection.',
+      }, statusCode: 400),
+    ),
+  );
+
+  try {
+    await client.getAndReadBytes('/reports/2026-08');
+    return const ProbeOutcome(
+      headline: 'Unexpected success',
+      detail: 'the stub always answers 400',
+    );
+  } on ApiException catch (e) {
+    return ProbeOutcome(
+      headline: e.code == null
+          ? 'REGRESSION — "${e.message}", no code'
+          : 'code=${e.code} → ${e.message}',
+      detail:
+          'The call asked for bytes, and dio hands an error body over in the '
+          'form the request asked for. The JSON is read all the same: a '
+          'failed download used to report "HTTP 400" and no code.',
     );
   }
 }
