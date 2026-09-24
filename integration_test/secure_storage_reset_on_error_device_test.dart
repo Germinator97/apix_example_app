@@ -6,6 +6,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'probe_android_options.dart';
+
 /// Measures what apix's default buys, by running without it.
 ///
 /// `SecureStorageService` passes `resetOnError: false`. This file is the same
@@ -21,7 +23,7 @@ import 'package:integration_test/integration_test.dart';
 ///
 /// ## Why it is not a group in the other file
 ///
-/// It was, until 12 Aug 2026, and it lied. From plugin **10.3.0** the early
+/// It was, until 12 Aug 2026, and it lied. From plugin **10.2.0** the early
 /// return in `initialize()` happens *before* the incoming config is stored, so
 /// the first call **for a given store** fixes that store's `resetOnError` and
 /// key prefix for every later one. Two storages naming the same store cannot
@@ -30,7 +32,8 @@ import 'package:integration_test/integration_test.dart';
 /// ran under the `false` established above it and reported `announced: 1` for a
 /// configuration that produces `announced: 0`.
 ///
-/// (The freeze is per store because 10.3.x keeps one instance per store name in
+/// (The freeze is per store because from 10.2.0 the plugin keeps one instance
+/// per store name — per store and key prefix from 11.2.0 — in
 /// `storagesBySharedPreferencesName`. At the 10.0.0 floor there is a single
 /// instance for the whole process, but the config is re-read on every call, so
 /// the same file passed honestly there. Neither version lets one process hold
@@ -71,13 +74,11 @@ void main() {
   /// The plugin's own default, which apix deliberately does not use.
   FlutterSecureStorage pluginDefaultStorage() {
     return FlutterSecureStorage(
-      // `sharedPreferencesName` is deprecated from 10.3.0 in favour of
-      // `storageNamespace`, which does not exist at the floor apix declares
-      // (`>=10.0.0`). This probe has to run against both bounds.
-      aOptions: const AndroidOptions(
+      // The store is named through [ProbeAndroidOptions]: no public parameter
+      // compiles at both bounds, and this probe has to run against both.
+      aOptions: const ProbeAndroidOptions(
+        store: probeStore,
         resetOnError: true,
-        // ignore: deprecated_member_use
-        sharedPreferencesName: probeStore,
         preferencesKeyPrefix: probePrefix,
       ),
       iOptions: const IOSOptions(

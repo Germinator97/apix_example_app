@@ -16,7 +16,7 @@ dependencies:
   apix:
     path: ../apix
   dio: ^5.4.0
-  flutter_secure_storage: ^10.0.0
+  flutter_secure_storage: ">=10.0.0 <12.0.0"
   sentry_flutter: ^9.0.0
   # Clean Architecture + BLoC
   flutter_bloc: ^8.1.0

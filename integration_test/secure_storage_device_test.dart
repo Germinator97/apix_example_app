@@ -7,6 +7,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'probe_android_options.dart';
+
 /// Exercises `SecureStorageService` against the **real** keychain / keystore.
 ///
 /// Everything in apix's own suite runs against a `MockFlutterSecureStorage`
@@ -32,17 +34,19 @@ import 'package:integration_test/integration_test.dart';
 /// later call inherits it**. The read was decrypting with the very key that had
 /// encrypted it. No option changes that; only a fresh process does.
 ///
-/// How far that reaches depends on the version, and both were measured:
+/// How far that reaches depends on the version, and each was measured:
 ///
 /// * **10.0.0** (the declared floor) — one storage instance for the whole
 ///   process. The first call fixes the preferences file and the cipher for
 ///   everything; only the config is re-read per call, so `resetOnError` and the
 ///   key prefix still follow each call.
-/// * **10.3.1** — the plugin keeps `storagesBySharedPreferencesName`, one
+/// * **from 10.2.0** — the plugin keeps `storagesBySharedPreferencesName`, one
 ///   instance per store name, and the early return now precedes storing the
 ///   config. So the freeze is **per store**: the first call *for a given store*
 ///   fixes its cipher, its `resetOnError` and its key prefix, and a storage
-///   naming a different store gets its own untouched instance.
+///   naming a different store gets its own untouched instance. Measured at
+///   10.3.1, and at 11.2.0, where the instance is per store **and** key
+///   prefix.
 ///
 /// What actually corrupts is reaching the bytes. `flutter_secure_storage` keeps
 /// every value as Base64 ciphertext inside an **ordinary, unencrypted**
@@ -128,16 +132,14 @@ void main() {
       // call for a given store, so a caller that disagrees is silently served
       // the first caller's settings.
       //
-      // `sharedPreferencesName` is deprecated from 10.3.0 in favour of
-      // `storageNamespace`, which isolates the KeyStore aliases too and would
-      // suit a probe better. It is kept because apix declares
-      // `>=10.0.0 <11.0.0` and the replacement does not exist at that floor —
-      // this file has to run against both bounds, which is the whole point of
+      // `storageNamespace` would isolate the KeyStore aliases too and suit a
+      // probe better, but it does not exist at the floor apix declares, and
+      // `sharedPreferencesName` is gone from 11.0 — see [ProbeAndroidOptions].
+      // This file has to run against both bounds, which is the whole point of
       // measuring them.
-      aOptions: AndroidOptions(
+      aOptions: ProbeAndroidOptions(
+        store: probeStore,
         resetOnError: resetOnError,
-        // ignore: deprecated_member_use
-        sharedPreferencesName: probeStore,
         preferencesKeyPrefix: probePrefix,
       ),
       iOptions: const IOSOptions(
@@ -372,8 +374,9 @@ void main() {
       // constructor names no store, so wherever it writes IS the measurement.
       // Which store that is depends on the plugin version — at the floor a
       // single instance serves the whole process, so it inherits the probe
-      // store; from 10.3.0 the plugin keeps one instance per store name and the
-      // bare constructor gets the real, default one. Both were measured.
+      // store; from 10.2.0 the plugin keeps one instance per store name and the
+      // bare constructor gets the real, default one. Both were measured, the
+      // second at 10.3.1 and 11.2.0.
       //
       // So both the store and the key are derived rather than spelled out, and
       // the key is deliberately unlike anything an app would store, since on
@@ -455,7 +458,7 @@ void main() {
 
     // The `resetOnError: true` counterpart — what a consumer who opts back into
     // the plugin's own default gets — lived here until 12 Aug 2026. It cannot:
-    // from plugin 10.3.0 the first call of the process fixes resetOnError for
+    // from plugin 10.2.0 the first call for a store fixes resetOnError for
     // every later one, so a second configuration in the same file measures the
     // first one and reports it as the second. It reported `announced: 1` for a
     // configuration that produces `announced: 0`.

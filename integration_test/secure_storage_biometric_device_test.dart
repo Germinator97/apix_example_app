@@ -4,6 +4,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'probe_android_options.dart';
+
 /// Settles one question `secure_storage_device_test.dart` structurally cannot:
 /// does `SecureStorageService.withBiometrics()` enforce anything?
 ///
@@ -67,18 +69,16 @@ void main() {
   /// of our own. Must be the first storage call the process makes.
   FlutterSecureStorage boot() {
     return FlutterSecureStorage(
-      // `sharedPreferencesName` is deprecated from 10.3.0 in favour of
-      // `storageNamespace`, which does not exist at the floor apix declares
-      // (`>=10.0.0`). This probe has to run against both bounds.
-      aOptions: const AndroidOptions.biometric(
+      // The store is named through [ProbeAndroidOptions]: no public parameter
+      // compiles at both bounds, and this probe has to run against both.
+      aOptions: const ProbeAndroidOptions.biometric(
+        store: probeStore,
         enforceBiometrics: true,
         // Mirrors what the factory passes. It is what turns the broken state
         // below into an exception instead of a silent deleteAll().
         resetOnError: false,
         biometricPromptTitle: 'apix device probe',
         biometricPromptSubtitle: 'Staging a biometric-backed write',
-        // ignore: deprecated_member_use
-        sharedPreferencesName: probeStore,
         preferencesKeyPrefix: probePrefix,
       ),
       iOptions: const IOSOptions(
@@ -126,17 +126,19 @@ void main() {
           // there is no PIN, pattern, password or enrolled biometric.
           //
           // Asserted on the ROOT CAUSE, because the surface message depends on
-          // what the previous run left behind and reads like a regression when
-          // it changes. Measured 12 Aug 2026, same device, same binary:
+          // the device and on what the previous run left behind, and reads like
+          // a regression when it changes. Measured:
           //
-          //   first run, virgin store → "BIOMETRIC_UNAVAILABLE: ..."
-          //   every run after         → "Migration failed after algorithm
-          //                              change", with BIOMETRIC_UNAVAILABLE
-          //                              two `Caused by:` down
+          //   Android 16, 12 Aug 2026, first run on a virgin store
+          //     → "BIOMETRIC_UNAVAILABLE: ..."
+          //   Android 16 on every later run, and Android 11 (API 30) from the
+          //   very first call, fresh install included — 24 Sep 2026, plugin
+          //   10.0.0, 10.3.1 and 11.2.0
+          //     → "Migration failed after algorithm change", with
+          //       BIOMETRIC_UNAVAILABLE down the `Caused by:` chain
           //
-          // The algorithm markers persist across runs, so the second run finds
-          // a store to migrate before it gets to refuse. Both are the same
-          // refusal; only one of them says so in its first line.
+          // Both are the same refusal; only one of them says so in its first
+          // line.
           expect(
             failure.toString(),
             contains('BIOMETRIC_UNAVAILABLE'),
