@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 11 and lower. Keeps flutter_secure_storage's files out of Auto Backup.
+
+  A backup restored after a reinstall, or on a new phone, brings these files
+  back without the Keystore key that wrapped their key, and that key never
+  leaves the device. Every storage call then fails, on every launch:
+  `Migration failed after algorithm change (Invalid key, key type incompatible
+  with cipher)` — measured on an Android 11 (API 30) emulator, plugin 10.3.1
+  and 11.2.0. Excluded, the same restore starts from an empty store instead.
+
+  All four, not just the data: the wrapped key and the markers restored on
+  their own fail the same way. These are the default store's files; a store
+  named in code adds its own.
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
+    <exclude domain="sharedpref" path="FlutterSecureKeyStorage.xml" />
+    <exclude domain="sharedpref" path="FlutterSecureStorageConfiguration.xml" />
+    <exclude domain="sharedpref" path="FlutterSecureStorageConfiguration:FlutterSecureStorage.xml" />
+</full-backup-content>

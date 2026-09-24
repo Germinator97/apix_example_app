@@ -2,7 +2,9 @@
     <application
         android:label="ApiX"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:fullBackupContent="@xml/secure_storage_backup_rules"
+        android:dataExtractionRules="@xml/secure_storage_data_extraction_rules">
         <activity
             android:name=".MainActivity"
             android:exported="true"
