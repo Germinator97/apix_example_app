@@ -293,7 +293,7 @@ Future<ProbeOutcome> _networkOnlyWritesNothing() async {
     ),
   );
 
-  await client.get<dynamic>('/quota');
+  await client.get<dynamic>('/profile');
   final stored = await storage.keys();
 
   return ProbeOutcome(
